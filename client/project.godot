@@ -1,0 +1,30 @@
+; Engine configuration file for the Krieg game client.
+; See ADR-0001 (Godot 4 desktop client). Loads scenario packages produced by
+; the pipeline (ADR-0004); does no networking or GIS of its own.
+;
+; Format: a plain INI-style file read by Godot 4.x. Edited by hand here because
+; the project is authored without the editor; the scene tree is built in code
+; from main/Main.gd, so only a one-node Main.tscn is needed.
+
+config_version=5
+
+[application]
+
+config/name="Krieg"
+config/description="19th-century Kriegsspiel on real terrain — tabletop sandbox (Phase 1)."
+run/main_scene="res://main/Main.tscn"
+config/features=PackedStringArray("4.2", "Forward Plus")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=800
+window/stretch/mode="canvas_items"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+; Parchment-coloured clear so the board reads like aged paper before terrain draws.
+environment/defaults/default_clear_color=Color(0.886, 0.835, 0.737, 1)
+textures/canvas_textures/default_texture_filter=1

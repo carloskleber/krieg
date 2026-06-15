@@ -4,11 +4,13 @@ A desktop **Kriegsspiel** (war game) played on real-world terrain sourced from
 OpenStreetMap, re-skinned to emulate a 19th-century battlefield. Units are
 rendered as "wooden pieces" on a map that behaves like a tabletop board.
 
-> Status: **Phase 0 implemented.** The offline map pipeline (M0 spike) is built
-> and runs end to end — a bbox becomes a versioned scenario package. See
-> [`pipeline/`](../pipeline/). Phases 1+ (the game client) are still design-only.
-> The ADRs in [`docs/adr/`](adr/) define the design; the Phase-0 ADRs (0002,
-> 0003, 0004, 0006) are now *Accepted*, the rest remain *Proposed*.
+> Status: **Phases 0 and 1 implemented.** The offline map pipeline (M0 spike)
+> turns a bbox into a versioned scenario package ([`pipeline/`](../pipeline/)),
+> and the **Godot 4 game client** ([`client/`](../client/)) now loads that
+> package and runs as a tabletop sandbox (M1 board renderer + M2 pieces &
+> save/load) — no rules yet, by design. Phases 2+ remain design-only. The ADRs
+> in [`docs/adr/`](adr/) define the design; ADRs 0001, 0002, 0003, 0004, 0006
+> are now *Accepted*, the rest remain *Proposed*.
 
 ---
 
@@ -68,18 +70,22 @@ classify → emit` (ADR-0003). The M0 spike runs end to end on the bundled
 - [x] Generate contour lines / hillshade from the DEM.
 - [x] Emit a versioned `scenario.json` + assets, plus a `preview` quick-look renderer.
 
-### Phase 1 — Tabletop sandbox (the MVP)
+### Phase 1 — Tabletop sandbox (the MVP) — ✅ implemented
 A desktop application that loads a scenario package and lets one person (or two,
 hot-seat) move pieces freely. **No enforced rules.** This is "Tabletop Simulator
 for our board."
 
-- Render the board: terrain fills, woods, water, roads, buildings, contours.
-- Pan / zoom / measure distance (in metres and in game scale).
-- Place, select, move, rotate, stack, label, and remove pieces.
-- Piece roster from a unit catalogue (infantry / cavalry / artillery / HQ /
+Built as the Godot 4 client in [`client/`](../client/) (ADR-0001). It loads a
+scenario package (the bundled `waterloo` by default) and runs the sandbox.
+
+- [x] Render the board: terrain fills, woods, water, roads, buildings, contours,
+  plus a faint hillshade backdrop, in a 19th-century staff-map palette.
+- [x] Pan / zoom / measure distance (in metres and in 1:8000 game scale).
+- [x] Place, select, move, rotate, stack, label, and remove pieces.
+- [x] Piece roster from a unit catalogue (infantry / cavalry / artillery / HQ /
   markers), styled as wooden blocks.
-- Save / load a game state (board + piece positions).
-- A measuring ruler and a movement-range overlay (purely advisory).
+- [x] Save / load a game state (piece positions; a separate file from the board).
+- [x] A measuring ruler and a movement-range overlay (purely advisory).
 
 ### Phase 2 — Assisted umpire (rules, opt-in)
 Layer Kriegsspiel/Strategos mechanics on top as **advisory then enforced**
@@ -105,7 +111,7 @@ Two cleanly separated halves, joined by a versioned file format:
 ```text
   ┌──────────────────────────────┐        ┌───────────────────────────────┐
   │  Map Pipeline (offline)      │        │  Game Client (desktop)        │
-  │  Python + GDAL/GeoPandas     │        │  Godot 4 (proposed, ADR-0001) │
+  │  Python + GDAL/GeoPandas     │        │  Godot 4 (built, ADR-0001)    │
   │                              │        │                               │
   │  OSM extract ─┐              │        │  loads ▼                      │
   │  DEM ─────────┼─► filter ──► │ scenario│  Board renderer              │
@@ -186,11 +192,12 @@ context rather than re-argued from scratch.
 - **M0 — Pipeline spike.** ✅ *Done (2026-06-14).* One bbox → a `scenario.json`
   you can open and eyeball as plotted polygons (`krieg-pipeline build … --preview`).
   Proves the data path end to end; validated on the Waterloo bbox.
-- **M1 — Board renderer.** Game client loads `scenario.json` and draws the
-  period board (terrain, water, woods, roads, buildings, contours) with
-  pan/zoom/measure.
-- **M2 — Sandbox.** Pieces: place/move/rotate/stack/label/remove, plus
-  save/load game state. *Phase 1 complete — playable manually.*
+- **M1 — Board renderer.** ✅ *Done (2026-06-14).* Godot client loads
+  `scenario.json` and draws the period board (terrain, water, woods, roads,
+  buildings, contours, hillshade) with pan/zoom/measure.
+- **M2 — Sandbox.** ✅ *Done (2026-06-14).* Pieces: place/move/rotate/stack/
+  label/remove, plus save/load game state. *Phase 1 complete — playable
+  manually.*
 - **M3 — Pipeline UX.** Choose an area by name/bbox; period filter is
   configurable (target year, road set, building density).
 - **M4 — Rules v0 (advisory).** Movement ranges & LOS overlays, no enforcement.

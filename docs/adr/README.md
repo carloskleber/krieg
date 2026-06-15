@@ -10,7 +10,7 @@ Format: lightweight [MADR](https://adr.github.io/madr/)-style. Template:
 
 | #    | Title                                          | Status   |
 |------|------------------------------------------------|----------|
-| 0001 | Game client engine: Godot 4                     | Proposed |
+| 0001 | Game client engine: Godot 4                     | Accepted |
 | 0002 | Map & elevation data sources and licensing      | Accepted |
 | 0003 | Map ingestion pipeline in Python                | Accepted |
 | 0004 | Scenario package format & coordinate system     | Accepted |
@@ -20,5 +20,7 @@ Format: lightweight [MADR](https://adr.github.io/madr/)-style. Template:
 | 0008 | AI agent integration seam (future)              | Proposed |
 
 ADRs 0002/0003/0004/0006 were **Accepted** when the Phase 0 pipeline
-([`../../pipeline/`](../../pipeline/)) implemented them (2026-06-14). The rest
-remain **Proposed** — they become *Accepted* when their milestone begins.
+([`../../pipeline/`](../../pipeline/)) implemented them (2026-06-14); **0001**
+when the Phase 1 game client ([`../../client/`](../../client/)) realised it
+(2026-06-14). The rest remain **Proposed** — they become *Accepted* when their
+milestone begins.

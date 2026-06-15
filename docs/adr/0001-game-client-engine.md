@@ -1,6 +1,6 @@
 # ADR-0001: Game client engine — Godot 4
 
-- **Status:** Proposed
+- **Status:** Accepted (realised by the Phase 1 client in [`client/`](../../client/), 2026-06-14)
 - **Date:** 2026-06-14
 - **Deciders:** project owner
 
