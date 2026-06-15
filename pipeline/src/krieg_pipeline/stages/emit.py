@@ -18,7 +18,7 @@ from shapely.geometry import mapping
 
 from .. import SCENARIO_FORMAT_VERSION, __version__
 from ..config import ScenarioConfig
-from .contour import Relief
+from .contour import HEIGHTMAP_ENCODING, Relief
 from .reproject import Projection
 
 log = logging.getLogger(__name__)
@@ -74,6 +74,21 @@ def emit(
         assets["hillshade"] = {
             "path": "assets/hillshade.png",
             "bounds_m": [round(b, 2) for b in (relief.hillshade_bounds or ())],
+        }
+    if relief.heightmap_path and relief.heightmap_path.exists():
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        dest = assets_dir / "heightmap.png"
+        if relief.heightmap_path.resolve() != dest.resolve():
+            dest.write_bytes(relief.heightmap_path.read_bytes())
+        assets["heightmap"] = {
+            "path": "assets/heightmap.png",
+            "bounds_m": [round(b, 2) for b in (relief.heightmap_bounds or ())],
+            "elevation_range_m": (
+                [round(e, 2) for e in relief.elevation_range]
+                if relief.elevation_range
+                else None
+            ),
+            "encoding": HEIGHTMAP_ENCODING,
         }
 
     bbox = config.bbox

@@ -17,6 +17,8 @@ var _pieces: PieceLayer
 var _ruler: Ruler
 var _rules: RulesEngine
 var _overlay: RulesOverlay
+var _view3d: View3D
+var _views: ViewManager
 var _hud: Hud
 
 func _ready() -> void:
@@ -67,10 +69,21 @@ func _start(path: String) -> void:
 	add_child(_camera)
 	_camera.frame_rect(_board.world_bounds())
 
+	# Optional 3D board (ADR-0009), built hidden; the ViewManager toggles it in.
+	_view3d = View3D.new()
+	_view3d.name = "View3D"
+	add_child(_view3d)
+	await _view3d.build(scenario)
+
+	_views = ViewManager.new()
+	_views.name = "ViewManager"
+	add_child(_views)
+	_views.setup(_board, _pieces, _ruler, _overlay, _camera, _view3d)
+
 	_hud = Hud.new()
 	_hud.name = "Hud"
 	add_child(_hud)
-	_hud.setup(_pieces, _ruler, _camera, _board, scenario, _rules, _overlay)
+	_hud.setup(_views, _ruler, _camera, _board, scenario, _rules, _overlay)
 
 	get_window().title = "Krieg — %s" % scenario.name()
 

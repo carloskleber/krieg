@@ -12,7 +12,12 @@ from shapely.geometry import LineString, Polygon
 from krieg_pipeline.config import BBox, ScenarioConfig
 from krieg_pipeline.ruleset import Ruleset
 from krieg_pipeline.stages.classify import classify
-from krieg_pipeline.stages.contour import Relief
+from krieg_pipeline.stages.contour import (
+    HEIGHTMAP_ENCODING,
+    Relief,
+    _encode_heightmap,
+    contour,
+)
 from krieg_pipeline.stages.emit import emit
 from krieg_pipeline.stages.filter import filter_features
 from krieg_pipeline.stages.reproject import reproject
@@ -92,7 +97,7 @@ def test_classify_and_emit_roundtrip(tmp_path: Path):
     path = emit(board, config, proj, relief, tmp_path)
     data = json.loads(path.read_text())
 
-    assert data["format_version"] == "0.1"
+    assert data["format_version"] == "0.2"
     assert data["metadata"]["target_year"] == 1880
     assert data["metadata"]["crs"]["projected_epsg"] == proj.crs.to_epsg()
     assert "© OpenStreetMap contributors" == data["metadata"]["attribution"]["osm"]
@@ -125,3 +130,63 @@ def test_building_clustering_collapses_dense_blocks():
     out = classify(board, empty, cluster_buildings=True)
     assert (out["category"] == "settlement").any()
     assert not (out["building_role"] == "ordinary").any()
+
+
+def test_heightmap_encode_roundtrips():
+    import numpy as np
+
+    zmin, zmax = 87.4, 166.2
+    z = np.linspace(zmin, zmax, 64).reshape(8, 8).astype("float64")
+    z[0, 0] = np.nan  # a void should encode without error
+    rgba = _encode_heightmap(z, zmin, zmax)
+
+    assert rgba.shape == (8, 8, 4) and rgba.dtype == np.uint8
+    u16 = rgba[..., 0].astype(np.uint16) * 256 + rgba[..., 1].astype(np.uint16)
+    decoded = zmin + (u16 / 65535.0) * (zmax - zmin)
+    # 16-bit over an ~80 m span resolves to ~1 mm; voids decode to the floor.
+    assert abs(decoded[1, 1] - z[1, 1]) < 0.01
+    assert decoded[0, 0] == pytest.approx(zmin)
+
+
+def test_contour_emits_heightmap_asset(tmp_path: Path):
+    import numpy as np
+    import rasterio
+    from PIL import Image
+    from rasterio.transform import from_origin
+
+    # A tiny synthetic WGS84 DEM ramp over the test bbox.
+    w = h = 32
+    res = (BBOX.max_lon - BBOX.min_lon) / w
+    yy, xx = np.mgrid[0:h, 0:w]
+    z = (90.0 + (xx / w) * 70.0 + (yy / h) * 5.0).astype("float32")
+    dem = tmp_path / "dem.tif"
+    with rasterio.open(
+        dem, "w", driver="GTiff", height=h, width=w, count=1,
+        dtype="float32", crs="EPSG:4326",
+        transform=from_origin(BBOX.min_lon, BBOX.max_lat, res, res),
+    ) as d:
+        d.write(z, 1)
+
+    _, proj = reproject(_features_geo(), BBOX)
+    relief = contour(dem, proj, 10.0, tmp_path / "assets")
+
+    assert relief.heightmap_path is not None and relief.heightmap_path.exists()
+    assert relief.heightmap_bounds is not None
+    im = Image.open(relief.heightmap_path)
+    assert im.mode == "RGBA" and im.size == (w, h)
+
+    # The asset is registered in the manifest with its decode metadata.
+    board = classify(
+        reproject(_features_geo(), BBOX)[0], relief.contours, cluster_buildings=False
+    )
+    config = ScenarioConfig(name="t", bbox=BBOX, target_year=1880)
+    data = json.loads(emit(board, config, proj, relief, tmp_path).read_text())
+    hm = data["assets"]["heightmap"]
+    assert hm["path"] == "assets/heightmap.png"
+    assert hm["encoding"] == HEIGHTMAP_ENCODING
+    assert len(hm["bounds_m"]) == 4 and len(hm["elevation_range_m"]) == 2
+
+
+def _features_geo():
+    kept, _ = filter_features(_features(), Ruleset.load(None), year=1880)
+    return kept

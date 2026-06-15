@@ -33,6 +33,14 @@ func setup(p_id: String, p_type: String, p_side: String) -> void:
 func half_size() -> Vector2:
 	return UnitCatalogue.type_def(type_id)["size"] * 0.5
 
+## Board position in metres (ADR-0004) — shared accessor with Piece3D so the HUD
+## can read either view's selection uniformly.
+func metres() -> Vector2:
+	return Geo.to_metres(position)
+
+func facing_degrees() -> float:
+	return rad_to_deg(rotation)
+
 ## True if a world-space point lands on this block (respecting rotation).
 func contains_point(world_pos: Vector2) -> bool:
 	var local := to_local(world_pos)

@@ -105,6 +105,8 @@ func _draw() -> void:
 		draw_polyline(pts, FeatureStyles.BRIDGE, 5.0)
 	for b in _buildings:
 		_fill(b.ring, FeatureStyles.BUILDING_FILL)
+		if b.ring.size() < 2:
+			continue  # a degenerate footprint has no outline to stroke
 		if b.strongpoint:
 			draw_polyline(_closed(b.ring), FeatureStyles.STRONGPOINT_LINE, 2.0)
 		else:

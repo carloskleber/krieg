@@ -12,7 +12,9 @@ rendered as "wooden pieces" on a map that behaves like a tabletop board.
 > advisory rules engine** ([`client/rules/`](../client/rules/), M4) now suggests
 > terrain-aware movement reach and line-of-sight via a pluggable *Strategos
 > (1880)* ruleset — advisory only, nothing enforced (ADR-0005). Enforced
-> resolution (M5) and double-blind (M6) remain design-only. The ADRs in
+> resolution (M5) and double-blind (M6) remain design-only. An **optional 3D
+> board view** — a relief sand-table with real elevation and volumetric pieces,
+> switchable alongside the 2D board (M8 / ADR-0009) — is in progress. The ADRs in
 > [`docs/adr/`](adr/) define the design; ADRs 0001, 0002, 0003, 0004, 0005,
 > 0006, 0007 are now *Accepted*, the rest remain *Proposed*.
 
@@ -118,23 +120,23 @@ for now.
 Two cleanly separated halves, joined by a versioned file format:
 
 ```text
-  ┌──────────────────────────────┐        ┌───────────────────────────────┐
-  │  Map Pipeline (offline)      │        │  Game Client (desktop)        │
-  │  Python + GDAL/GeoPandas     │        │  Godot 4 (built, ADR-0001)    │
-  │                              │        │                               │
-  │  OSM extract ─┐              │        │  loads ▼                      │
-  │  DEM ─────────┼─► filter ──► │ scenario│  Board renderer              │
-  │               │   project ──►│ package │  Piece manager (sandbox)     │
-  │               │   contours ─►│  (.json │  Rules engine (Phase 2,      │
+  ┌──────────────────────────────┐         ┌───────────────────────────────┐
+  │  Map Pipeline (offline)      │         │  Game Client (desktop)        │
+  │  Python + GDAL/GeoPandas     │         │  Godot 4 (built, ADR-0001)    │
+  │                              │         │                               │
+  │  OSM extract ─┐              │         │  loads ▼                      │
+  │  DEM ─────────┼─► filter ──► │ scenario│  Board renderer               │
+  │               │   project ──►│ package │  Piece manager (sandbox)      │
+  │               │   contours ─►│  (.json │  Rules engine (Phase 2,       │
   │               │              │ +assets)│    pluggable)                 │
-  │               └──────────────┘  ───────►  Save/load game state        │
-  └──────────────────────────────┘        └───────────────────────────────┘
+  │               └──────────────┘  ───────►  Save/load game state         │
+  └──────────────────────────────┘         └───────────────────────────────┘
                                                      ▲
                                                      │ Phase 3
-                                              ┌──────┴───────┐
-                                              │  Agent API   │  (ADR-0008)
+                                              ┌──────┴────────┐
+                                              │  Agent API    │  (ADR-0008)
                                               │  player/umpire│
-                                              └──────────────┘
+                                              └───────────────┘
 ```
 
 - **Map Pipeline** is batch tooling. It runs rarely (once per scenario), can be
@@ -189,6 +191,7 @@ The heart of Phase 0. Conceptual steps (detail in ADR-0003 / ADR-0006):
 | Rules approach       | Manual sandbox → pluggable rules engine   | 0005 |
 | Period adaptation    | Declarative feature filter rules          | 0006 |
 | Elevation source     | Open DEM (Copernicus GLO-30 / SRTM)       | 0002 |
+| 3D board view        | Optional relief sand-table, toggled       | 0009 |
 | AI agent seam        | State + action interface (future)         | 0008 |
 
 These are starting positions, recorded as ADRs so they can be revisited with
@@ -216,6 +219,11 @@ context rather than re-argued from scratch.
 - **M5 — Rules v1 (umpire).** Combat tables, seeded dice, turn structure, log.
 - **M6 — Double-blind.** Fog of war, per-player views, umpire view.
 - **M7+ — Agents.** Stable agent interface; first scripted/AI umpire or player.
+- **M8 — 3D board (optional view).** 🟡 *In progress (2026-06-15).* A relief
+  "sand-table" rendered in 3D from a pipeline-emitted heightmap, with volumetric
+  wooden pieces and configurable vertical exaggeration, switchable alongside the
+  2D board (ADR-0009). The scenario format gains an optional `heightmap` asset
+  (bumped to `0.2`); pre-0.2 packages fall back to contour-derived relief.
 
 ---
 
@@ -243,3 +251,12 @@ Tracked here, with resolutions dated as they land (not blocking the plan):
 - **Rules edition.** *Resolved (2026-06-14):* focus on **Strategos (1880)** as
   the first ruleset; the pluggable engine (ADR-0005) keeps the door open to
   similar rulesets (Reisswitz, house variants) in the near future.
+
+## 8. Future plans
+
+- **Map editor**: GUI first to select a location, and in a second phase edit
+elements (remove buildings, change type - e.g. convert a soccer stadium to a "castle").
+- **Naval units**: Research specific rules for naval battles, and a second phase
+mix land/ naval units.
+- **Medieval/ ancient settings**: go back up to B.C. years, with new units and specific
+rules (e.g. siege units). Need a robust map editor to adapt maps.

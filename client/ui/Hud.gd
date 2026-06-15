@@ -1,24 +1,36 @@
 class_name Hud
 extends CanvasLayer
 
-## Screen-space UI: toolbar (tool/unit/side/range/rules/file actions), a help &
-## info panel, the scale bar, a measurement/LOS readout, and source attribution.
-## Owns no game logic — it drives PieceLayer / Ruler / Camera / RulesEngine and
-## reads the Scenario.
+## Screen-space UI: toolbar (tool/unit/side/range/rules/view/file actions), a help
+## & info panel, the scale bar, a measurement/LOS readout, and source attribution.
+## Owns no game logic — it drives the *active* piece layer (2D or 3D, via the
+## ViewManager, ADR-0009), the Ruler, the RulesEngine, and reads the Scenario.
 
 enum Tool { SELECT, PLACE, MEASURE, LOS }
 
 const HELP := "LMB place/select · drag move · RMB/MMB pan · wheel zoom\nQ/E rotate (Shift=fine) · +/- stack · F side · L label · Del remove · arrows nudge\nMeasure / LOS: left-drag across the board"
+const HELP_3D := "LMB place/select · drag move · RMB/MMB orbit · Shift+drag pan · wheel zoom\nQ/E rotate · +/- stack · F side · L label · Del remove · arrows nudge"
 
-var _piece_layer: PieceLayer
+var _view: ViewManager
+var _pieces: Object             # active PieceLayer or Piece3DLayer
 var _ruler: Ruler
-var _camera: CameraController
+var _camera2d: CameraController
 var _board: BoardView
 var _scenario: Scenario
 var _rules: RulesEngine
 var _overlay: RulesOverlay
 
 var _tool := Tool.SELECT
+var _place_type := "infantry"
+var _place_side := "blue"
+var _range := 0.0
+
+var _select_btn: Button
+var _measure_btn: Button
+var _los_btn: Button
+var _view_btn: Button
+var _exag_slider: HSlider
+var _exag_label: Label
 var _type_opt: OptionButton
 var _side_opt: OptionButton
 var _rules_opt: OptionButton
@@ -27,25 +39,26 @@ var _measure_label: Label
 var _scale_bar: ScaleBar
 var _label_edit_panel: PanelContainer
 var _label_line: LineEdit
-var _editing: Piece
+var _editing: Object
 var _save_dialog: FileDialog
 var _load_dialog: FileDialog
 
-func setup(piece_layer: PieceLayer, ruler: Ruler, camera: CameraController, board: BoardView, scenario: Scenario, rules: RulesEngine, overlay: RulesOverlay) -> void:
-	_piece_layer = piece_layer
+func setup(view: ViewManager, ruler: Ruler, camera2d: CameraController, board: BoardView,
+		scenario: Scenario, rules: RulesEngine, overlay: RulesOverlay) -> void:
+	_view = view
 	_ruler = ruler
-	_camera = camera
+	_camera2d = camera2d
 	_board = board
 	_scenario = scenario
 	_rules = rules
 	_overlay = overlay
+	_view.set_hud(self)
 	_build()
+	_bind_pieces()
 	_apply_tool(Tool.SELECT)
-	_piece_layer.selection_changed.connect(_on_selection_changed)
-	_piece_layer.request_label_edit.connect(_open_label_editor)
-	_piece_layer.pieces_changed.connect(_refresh_reach)
 	_ruler.measured.connect(_on_measured)
 	_overlay.los_reported.connect(func(text): _measure_label.text = text)
+	_update_view_state()
 	_on_selection_changed(null)
 
 # --- UI construction --------------------------------------------------------
@@ -71,10 +84,13 @@ func _build_topbar(root: Control) -> void:
 	panel.add_child(bar)
 
 	var group := ButtonGroup.new()
-	bar.add_child(_tool_button("Select", Tool.SELECT, group, true))
+	_select_btn = _tool_button("Select", Tool.SELECT, group, true)
+	bar.add_child(_select_btn)
 	bar.add_child(_tool_button("Place", Tool.PLACE, group, false))
-	bar.add_child(_tool_button("Measure", Tool.MEASURE, group, false))
-	bar.add_child(_tool_button("LOS", Tool.LOS, group, false))
+	_measure_btn = _tool_button("Measure", Tool.MEASURE, group, false)
+	bar.add_child(_measure_btn)
+	_los_btn = _tool_button("LOS", Tool.LOS, group, false)
+	bar.add_child(_los_btn)
 	bar.add_child(VSeparator.new())
 
 	bar.add_child(_mklabel("Unit"))
@@ -97,17 +113,32 @@ func _build_topbar(root: Control) -> void:
 	range_spin.max_value = 5000
 	range_spin.step = 50
 	range_spin.value = 0
-	range_spin.value_changed.connect(func(v): _piece_layer.set_range(v))
+	range_spin.value_changed.connect(_on_range_changed)
 	bar.add_child(range_spin)
 	bar.add_child(VSeparator.new())
 
-	# Rules are opt-in per game (ADR-0005); advisory only at M4.
+	# Rules are opt-in per game (ADR-0005); advisory only at M4, and 2D-only.
 	bar.add_child(_mklabel("Rules"))
 	_rules_opt = OptionButton.new()
 	_rules_opt.add_item("None")
 	_rules_opt.add_item(Strategos.new().display_name())
 	_rules_opt.item_selected.connect(_on_rules_selected)
 	bar.add_child(_rules_opt)
+	bar.add_child(VSeparator.new())
+
+	# 3D view toggle + vertical exaggeration (ADR-0009).
+	_view_btn = _action_button("3D", _on_toggle_view)
+	bar.add_child(_view_btn)
+	_exag_label = _mklabel("×3.0")
+	bar.add_child(_exag_label)
+	_exag_slider = HSlider.new()
+	_exag_slider.min_value = 1.0
+	_exag_slider.max_value = 8.0
+	_exag_slider.step = 0.5
+	_exag_slider.value = View3D.DEFAULT_EXAGGERATION
+	_exag_slider.custom_minimum_size = Vector2(90, 0)
+	_exag_slider.value_changed.connect(_on_exag_changed)
+	bar.add_child(_exag_slider)
 	bar.add_child(VSeparator.new())
 
 	bar.add_child(_action_button("Frame", _on_frame))
@@ -142,7 +173,7 @@ func _build_corner(root: Control) -> void:
 	box.add_child(_measure_label)
 
 	_scale_bar = ScaleBar.new()
-	_scale_bar.camera = _camera
+	_scale_bar.camera = _camera2d
 	box.add_child(_scale_bar)
 
 	var attrib := Label.new()
@@ -209,60 +240,121 @@ func _mklabel(text: String) -> Label:
 	l.text = text
 	return l
 
+# --- Active piece layer binding ---------------------------------------------
+
+func _bind_pieces() -> void:
+	_pieces = _view.active_pieces()
+	_pieces.selection_changed.connect(_on_selection_changed)
+	_pieces.request_label_edit.connect(_open_label_editor)
+	_pieces.pieces_changed.connect(_refresh_reach)
+	# Push current placement settings onto the freshly active layer.
+	_pieces.place_type = _place_type
+	_pieces.place_side = _place_side
+	_pieces.set_range(_range)
+
+func _unbind_pieces() -> void:
+	if _pieces == null:
+		return
+	_pieces.selection_changed.disconnect(_on_selection_changed)
+	_pieces.request_label_edit.disconnect(_open_label_editor)
+	_pieces.pieces_changed.disconnect(_refresh_reach)
+
+## Called by the ViewManager after a 2D<->3D switch.
+func on_view_changed() -> void:
+	_unbind_pieces()
+	_bind_pieces()
+	_apply_tool(_tool)
+	_update_view_state()
+	_on_selection_changed(_pieces.selected())
+
 # --- Tool / selection handling ----------------------------------------------
 
 func _apply_tool(tool: int) -> void:
 	_tool = tool
-	_piece_layer.place_mode = tool == Tool.PLACE
+	_pieces.place_mode = tool == Tool.PLACE
 	# Piece manipulation yields to the measure tape and the LOS probe.
-	_piece_layer.input_enabled = tool == Tool.SELECT or tool == Tool.PLACE
-	_ruler.set_enabled(tool == Tool.MEASURE)
-	_overlay.set_los_enabled(tool == Tool.LOS)
+	_pieces.input_enabled = tool == Tool.SELECT or tool == Tool.PLACE
+	# Ruler and LOS are 2D-only tools.
+	var d3 := _view.is_3d()
+	_ruler.set_enabled(not d3 and tool == Tool.MEASURE)
+	_overlay.set_los_enabled(not d3 and tool == Tool.LOS)
 	if tool != Tool.MEASURE and tool != Tool.LOS:
 		_measure_label.text = ""
 
 func _on_type_selected(idx: int) -> void:
-	_piece_layer.place_type = UnitCatalogue.TYPE_ORDER[idx]
+	_place_type = UnitCatalogue.TYPE_ORDER[idx]
+	_pieces.place_type = _place_type
 
 func _on_side_selected(idx: int) -> void:
-	_piece_layer.place_side = UnitCatalogue.SIDE_ORDER[idx]
+	_place_side = UnitCatalogue.SIDE_ORDER[idx]
+	_pieces.place_side = _place_side
+
+func _on_range_changed(v: float) -> void:
+	_range = v
+	_pieces.set_range(v)
 
 func _on_rules_selected(idx: int) -> void:
 	_rules.configure(_scenario, RulesEngine.RULESET_IDS[idx])
 	_refresh_reach()
-	_on_selection_changed(_piece_layer.selected())
+	_on_selection_changed(_pieces.selected())
 
-func _on_selection_changed(p: Piece) -> void:
+func _on_toggle_view() -> void:
+	_view.toggle()
+
+func _on_exag_changed(v: float) -> void:
+	_exag_label.text = "×%.1f" % v
+	_view.set_exaggeration(v)
+
+# Reflect the active view in the toolbar: relabel the toggle, gate 2D-only tools.
+func _update_view_state() -> void:
+	var d3 := _view.is_3d()
+	_view_btn.text = "2D" if d3 else "3D"
+	_measure_btn.disabled = d3
+	_los_btn.disabled = d3
+	_rules_opt.disabled = d3
+	_scale_bar.visible = not d3
+	if d3 and (_tool == Tool.MEASURE or _tool == Tool.LOS):
+		_select_btn.button_pressed = true
+		_apply_tool(Tool.SELECT)
+
+func _on_selection_changed(p: Object) -> void:
 	_refresh_reach()
 	if p == null:
-		_info.text = "[b]No piece selected[/b]\n%s\n%s" % [_rules_line(), HELP]
+		var help := HELP_3D if _view.is_3d() else HELP
+		_info.text = "[b]No piece selected[/b]\n%s\n%s" % [_rules_line(), help]
 		return
-	_overlay.set_los_unit_type(p.type_id)
+	if not _view.is_3d():
+		_overlay.set_los_unit_type(p.type_id)
 	var td: Dictionary = UnitCatalogue.type_def(p.type_id)
 	var sd: Dictionary = UnitCatalogue.side_def(p.side)
-	var m := Geo.to_metres(p.position)
-	var lbl := p.label if not p.label.is_empty() else "(unlabelled)"
-	_info.text = "[b]%s[/b] · %s · facing %d° · x%d\n%s\n@ (%.0f, %.0f) m\n%s\n%s" % [
-		td.label, sd.label, int(round(rad_to_deg(p.rotation))) % 360, p.stack_count, lbl, m.x, m.y, _rules_line(), HELP]
+	var m: Vector2 = p.metres()
+	var lbl: String = p.label if not p.label.is_empty() else "(unlabelled)"
+	_info.text = "[b]%s[/b] · %s · facing %d° · x%d\n%s\n@ (%.0f, %.0f) m\n%s" % [
+		td.label, sd.label, int(round(p.facing_degrees())) % 360, p.stack_count, lbl, m.x, m.y, _rules_line()]
 
-## A one-line note on the active ruleset and what the selected piece can do this
-## turn (advisory — ADR-0005/0007).
+## A one-line note on the active ruleset and the selected piece's reach (advisory,
+## ADR-0005/0007). Rules are 2D-only; in 3D this stays a plain sandbox note.
 func _rules_line() -> String:
+	if _view.is_3d():
+		return "[i]3D view · rules/measure are 2D-only[/i]"
 	if not _rules.enabled():
 		return "[i]Rules: off (sandbox)[/i]"
 	var rs_name := _rules.ruleset.display_name()
-	var p := _piece_layer.selected()
+	var p: Object = _pieces.selected()
 	if p == null:
 		return "[i]Rules: %s · select a piece for its move reach; LOS tool to check sight[/i]" % rs_name
-	var terr := _rules.terrain.movement_terrain_at(Geo.to_metres(p.position))
+	var terr := _rules.terrain.movement_terrain_at(p.metres())
 	var budget := _rules.ruleset.movement_budget(p.type_id)
 	return "[i]Rules: %s · on %s · ~%.0f m/turn[/i]" % [rs_name, terr, budget]
 
-## Recompute the selected piece's advisory move reach (terrain-aware).
+## Recompute the selected piece's advisory move reach (terrain-aware, 2D only).
 func _refresh_reach() -> void:
 	if _overlay == null:
 		return
-	var p := _piece_layer.selected()
+	if _view.is_3d():
+		_overlay.clear_reach()
+		return
+	var p: Object = _pieces.selected()
 	if p != null and _rules.enabled():
 		_overlay.show_reach(p.position, p.type_id)
 	else:
@@ -275,14 +367,14 @@ func _on_measured(metres: float) -> void:
 		_measure_label.text = "%.0f m  (1:8000 → %.1f cm)" % [metres, metres / 8000.0 * 100.0]
 
 func _on_frame() -> void:
-	_camera.frame_rect(_board.world_bounds())
+	_view.frame()
 
 func _on_clear() -> void:
-	_piece_layer.clear_all()
+	_pieces.clear_all()
 
 # --- Label editing ----------------------------------------------------------
 
-func _open_label_editor(p: Piece) -> void:
+func _open_label_editor(p: Object) -> void:
 	_editing = p
 	_label_line.text = p.label
 	_label_edit_panel.visible = true
@@ -292,7 +384,7 @@ func _open_label_editor(p: Piece) -> void:
 func _confirm_label() -> void:
 	if _editing != null:
 		_editing.set_label(_label_line.text)
-		_piece_layer.pieces_changed.emit()
+		_pieces.pieces_changed.emit()
 	_label_edit_panel.visible = false
 
 # --- Save / load ------------------------------------------------------------
@@ -300,7 +392,7 @@ func _confirm_label() -> void:
 func _do_save(path: String) -> void:
 	if not path.ends_with(".json"):
 		path += ".krieg.json"
-	GameState.save(path, _scenario, _piece_layer.serialize())
+	GameState.save(path, _scenario, _pieces.serialize())
 
 func _do_load(path: String) -> void:
 	var data := GameState.read(path)
@@ -308,5 +400,5 @@ func _do_load(path: String) -> void:
 		return
 	if not GameState.matches_scenario(data, _scenario):
 		push_warning("Save '%s' was made for a different scenario/board; loading anyway." % path)
-	_piece_layer.deserialize(data.get("pieces", []))
+	_pieces.deserialize(data.get("pieces", []))
 	_on_selection_changed(null)

@@ -28,6 +28,29 @@ class Relief:
     hillshade_path: Path | None
     hillshade_bounds: tuple[float, float, float, float] | None  # in local metres
     elevation_range: tuple[float, float] | None
+    heightmap_path: Path | None = None
+    heightmap_bounds: tuple[float, float, float, float] | None = None  # local metres
+
+
+# Encoding tag recorded in the manifest so the client knows how to decode the
+# heightmap PNG. The normalised height h∈[0,1] over `elevation_range` is packed
+# 16-bit into the R (high byte) and G (low byte) channels of an 8-bit RGBA PNG.
+# Godot's PNG loader truncates true 16-bit grayscale to 8-bit, so two 8-bit
+# channels are used to carry full precision losslessly (~80 m / 65535 ≈ 1 mm).
+HEIGHTMAP_ENCODING = "rg16-linear"
+
+
+def _encode_heightmap(z, zmin: float, zmax: float):
+    """Pack a float elevation array into an RGBA8 image (R=hi, G=lo of uint16)."""
+    span = max(zmax - zmin, 1e-6)
+    norm = np.clip((np.nan_to_num(z, nan=zmin) - zmin) / span, 0.0, 1.0)
+    u16 = (norm * 65535.0 + 0.5).astype(np.uint16)
+    h, w = u16.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    rgba[..., 0] = (u16 >> 8).astype(np.uint8)   # high byte
+    rgba[..., 1] = (u16 & 0xFF).astype(np.uint8)  # low byte
+    rgba[..., 3] = 255
+    return rgba
 
 
 def _grids(transform, width: int, height: int):
@@ -144,4 +167,30 @@ def contour(
         log.warning("Hillshade generation failed: %s", exc)
         hs_path = hs_bounds = None
 
-    return Relief(contours, hs_path, hs_bounds, (zmin, zmax))
+    # Heightmap for the optional 3D board view (ADR-0009). Same DEM pixel grid
+    # and local-metre bounds as the hillshade, but carrying real elevation
+    # (RG-packed 16-bit) instead of shading, so the client can displace a mesh.
+    hm_path = hm_bounds = None
+    try:
+        from PIL import Image
+
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        hm_path = assets_dir / "heightmap.png"
+        Image.fromarray(_encode_heightmap(z, zmin, zmax), mode="RGBA").save(hm_path)
+        # Reuse the hillshade corner reprojection (identical grid).
+        corners = gpd.GeoSeries.from_xy(
+            [transform.c, transform.c + width * transform.a],
+            [transform.f + height * transform.e, transform.f],
+            crs=dem_crs,
+        ).to_crs(proj.crs)
+        xs = [p.x - proj.origin[0] for p in corners]
+        ys = [p.y - proj.origin[1] for p in corners]
+        hm_bounds = (min(xs), min(ys), max(xs), max(ys))
+        log.info("Heightmap written -> %s", hm_path)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Heightmap generation failed: %s", exc)
+        hm_path = hm_bounds = None
+
+    return Relief(
+        contours, hs_path, hs_bounds, (zmin, zmax), hm_path, hm_bounds
+    )

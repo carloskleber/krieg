@@ -18,6 +18,7 @@ Format: lightweight [MADR](https://adr.github.io/madr/)-style. Template:
 | 0006 | 19th-century adaptation as declarative filters  | Accepted |
 | 0007 | Game scale & movement model                     | Accepted |
 | 0008 | AI agent integration seam (future)              | Proposed |
+| 0009 | Optional 3D board view (relief sand-table)      | Proposed |
 
 ADRs 0002/0003/0004/0006 were **Accepted** when the Phase 0 pipeline
 ([`../../pipeline/`](../../pipeline/)) implemented them (2026-06-14); **0001**

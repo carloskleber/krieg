@@ -1,6 +1,6 @@
 [project]
 name = "krieg-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 description = "Krieg map pipeline — turns OSM + a DEM into a period scenario package (Phase 0)."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -16,6 +16,7 @@ dependencies = [
     "requests>=2.31",
     "pyyaml>=6.0",
     "matplotlib>=3.8",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
