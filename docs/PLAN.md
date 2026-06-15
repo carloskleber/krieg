@@ -256,6 +256,11 @@ Tracked here, with resolutions dated as they land (not blocking the plan):
 
 - **Map editor**: GUI first to select a location, and in a second phase edit
 elements (remove buildings, change type - e.g. convert a soccer stadium to a "castle").
+  *First step landed (2026-06-15):* a graphical **map selector** —
+  `krieg-pipeline select` opens an OpenStreetMap slippy map where you draw the
+  scenario bbox and set the period knobs, writing a validated scenario YAML
+  ([`pipeline/src/krieg_pipeline/mapeditor/`](../pipeline/src/krieg_pipeline/mapeditor/)).
+  Its Leaflet draw/edit surface is the seam for the later per-feature editing phase.
 - **Naval units**: Research specific rules for naval battles, and a second phase
 mix land/ naval units.
 - **Medieval/ ancient settings**: go back up to B.C. years, with new units and specific

@@ -90,7 +90,8 @@ func _evaluate_los() -> void:
 	else:
 		var blocked: Vector2 = Geo.to_world(_los_result.get("block_m", _los_b))
 		var at := Geo.world_distance_m(_los_a, blocked)
-		los_reported.emit("LOS: blocked at %.0f m (of %.0f m)" % [at, dist])
+		var cause := RulesEngine.terrain_label(_los_result.get("cause", ""))
+		los_reported.emit("LOS: blocked by %s at %.0f m (of %.0f m)" % [cause, at, dist])
 	queue_redraw()
 
 # --- Drawing ----------------------------------------------------------------

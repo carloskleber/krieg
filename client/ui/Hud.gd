@@ -35,6 +35,8 @@ var _type_opt: OptionButton
 var _side_opt: OptionButton
 var _rules_opt: OptionButton
 var _info: RichTextLabel
+var _hover_panel: PanelContainer
+var _hover_label: Label
 var _measure_label: Label
 var _scale_bar: ScaleBar
 var _label_edit_panel: PanelContainer
@@ -158,6 +160,17 @@ func _build_info(root: Control) -> void:
 	_info.custom_minimum_size = Vector2(460, 0)
 	_info.scroll_active = false
 	panel.add_child(_info)
+
+	# A small caption that follows the cursor with the terrain it is over
+	# (2D only; positioned each frame in _process).
+	_hover_panel = PanelContainer.new()
+	_hover_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hover_panel.visible = false
+	_hover_panel.modulate = Color(1, 1, 1, 0.9)
+	root.add_child(_hover_panel)
+	_hover_label = Label.new()
+	_hover_label.add_theme_font_size_override("font_size", 12)
+	_hover_panel.add_child(_hover_label)
 
 func _build_corner(root: Control) -> void:
 	var box := VBoxContainer.new()
@@ -359,6 +372,29 @@ func _refresh_reach() -> void:
 		_overlay.show_reach(p.position, p.type_id)
 	else:
 		_overlay.clear_reach()
+
+# --- Terrain-under-cursor caption -------------------------------------------
+
+## Each frame, show the play-terrain (and ground height) beneath the cursor in a
+## caption that trails it. 2D only, and only while the pointer is over the board.
+func _process(_delta: float) -> void:
+	if _hover_panel == null:
+		return
+	if _view.is_3d() or _rules == null or _rules.terrain == null:
+		_hover_panel.visible = false
+		return
+	var world := _board.get_global_mouse_position()
+	if not _board.world_bounds().has_point(world):
+		_hover_panel.visible = false
+		return
+	var m := Geo.to_metres(world)
+	var terr: String = _rules.terrain.movement_terrain_at(m)
+	var text := RulesEngine.terrain_label(terr)
+	if _rules.elevation != null:
+		text += " · %.0f m" % _rules.elevation.elevation_at(m)
+	_hover_label.text = text
+	_hover_panel.visible = true
+	_hover_panel.position = get_viewport().get_mouse_position() + Vector2(18, 18)
 
 func _on_measured(metres: float) -> void:
 	if metres <= 0.0:

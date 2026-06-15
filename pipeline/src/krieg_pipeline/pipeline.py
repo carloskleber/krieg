@@ -14,6 +14,7 @@ from .config import ScenarioConfig
 from .ruleset import Ruleset
 from .stages import acquire as acquire_stage
 from .stages import clip as clip_stage
+from .stages import coastline as coastline_stage
 from .stages import emit as emit_stage
 from .stages import filter as filter_stage
 from .stages import reproject as reproject_stage
@@ -44,9 +45,16 @@ def build(config: ScenarioConfig, out_dir: Path, work_dir: Path | None = None) -
     try:
         log.info("[1/7] acquire")
         acquired = acquire_stage.acquire(config.bbox, ruleset, work_dir)
+        # Rebuild the sea from any coastline before clipping (ADR-0004): OSM
+        # leaves open water implicit, so an island would otherwise read as all
+        # land. Must run pre-clip — clip's overlay flips ring winding, which
+        # would invert the land-vs-sea (land-on-left) test.
+        features, _ = coastline_stage.synthesize_water(
+            acquired.features, config.bbox
+        )
 
         log.info("[2/7] clip")
-        clipped = clip_stage.clip(acquired.features, config.bbox)
+        clipped = clip_stage.clip(features, config.bbox)
 
         log.info("[3/7] filter")
         filtered, report = filter_stage.filter_features(

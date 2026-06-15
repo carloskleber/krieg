@@ -33,6 +33,17 @@ const LOS_EPS_M := 0.4              # ground must clear the sightline by this mu
 func enabled() -> bool:
 	return ruleset != null
 
+# Human-readable names for play-terrain / LOS-cause tokens, shared by the HUD
+# hover caption and the LOS readout so both speak the same language.
+const TERRAIN_LABELS := {
+	"open": "open ground", "field": "fields", "wood": "woods",
+	"settlement": "village", "building": "buildings", "water": "water",
+	"road": "road", "terrain": "high ground",
+}
+
+static func terrain_label(token: String) -> String:
+	return TERRAIN_LABELS.get(token, token)
+
 static func make_ruleset(rid: String) -> Ruleset:
 	match rid:
 		"strategos":
@@ -41,13 +52,11 @@ static func make_ruleset(rid: String) -> Ruleset:
 			return null
 
 ## Point the engine at a scenario and choose a ruleset by id ("none" = off).
+## The board models are built regardless of the ruleset: they are pure scenario
+## data and the HUD's terrain-under-cursor readout wants them even in the
+## rules-off sandbox. Reach/LOS still no-op while `ruleset` is null.
 func configure(scenario: Scenario, rid: String) -> void:
 	ruleset = make_ruleset(rid)
-	if ruleset == null:
-		terrain = null
-		elevation = null
-		return
-	# Build the board models lazily — only when a real ruleset is active.
 	if terrain == null:
 		terrain = TerrainModel.from_scenario(scenario)
 	if elevation == null:
@@ -84,6 +93,9 @@ func _spoke_reach(unit_type: String, origin: Vector2, dir: Vector2, budget: floa
 		var cpm := ruleset.cost_per_metre(unit_type, terr)
 		if is_inf(cpm):
 			break                                                  # impassable: stop here
+		# Climbing costs more, descending a little less — make the reach respond
+		# to the slope it crosses rather than treating the board as flat.
+		cpm *= ruleset.slope_cost_factor(_grade_along(origin, dir, dist))
 		var step_cost := cpm * REACH_STEP_M
 		if spent + step_cost >= budget:
 			# Partial final step: spend exactly the remainder.
@@ -93,15 +105,25 @@ func _spoke_reach(unit_type: String, origin: Vector2, dir: Vector2, budget: floa
 		dist += REACH_STEP_M
 	return dist
 
+# Signed ground grade (rise/run) across the step starting at `dist` along a spoke.
+func _grade_along(origin: Vector2, dir: Vector2, dist: float) -> float:
+	if elevation == null:
+		return 0.0
+	var z0 := elevation.elevation_at(origin + dir * dist)
+	var z1 := elevation.elevation_at(origin + dir * (dist + REACH_STEP_M))
+	return (z1 - z0) / REACH_STEP_M
+
 # --- Advisory line of sight -------------------------------------------------
 
 ## Can an observer of `unit_type` at `from_m` see `to_m`? Walks the ground
 ## profile between them (interpolated elevation + any wood canopy / rooflines)
 ## and checks nothing rises above the sightline drawn between the two eye
-## heights. Returns { visible: bool, block_m: Vector2 } — block_m is the first
-## obstruction (valid only when not visible) so the overlay can mark it.
+## heights. Returns { visible: bool, block_m: Vector2, cause: String } —
+## block_m is the first obstruction and `cause` names what stopped the view
+## ("terrain" for a ridge/rising ground, else the cover: wood/settlement/
+## building); both are valid only when not visible.
 func line_of_sight(unit_type: String, from_m: Vector2, to_m: Vector2) -> Dictionary:
-	var result := {"visible": true, "block_m": to_m}
+	var result := {"visible": true, "block_m": to_m, "cause": ""}
 	if ruleset == null or terrain == null or elevation == null:
 		return result
 	var total := from_m.distance_to(to_m)
@@ -116,14 +138,20 @@ func line_of_sight(unit_type: String, from_m: Vector2, to_m: Vector2) -> Diction
 	var skirt := LOS_STEP_M * 1.5
 	while d < total - LOS_STEP_M:
 		var p := from_m + dir * d
-		var ground := elevation.elevation_at(p)
+		var bare := elevation.elevation_at(p)
+		var cover := "open"
+		var ground := bare
 		if d > skirt and d < total - skirt:
-			ground += ruleset.los_occluder_height(terrain.cover_at(p))
+			cover = terrain.cover_at(p)
+			ground += ruleset.los_occluder_height(cover)
 		var t := d / total
 		var sightline: float = lerpf(eye_from, eye_to, t)
 		if ground > sightline + LOS_EPS_M:
 			result.visible = false
 			result.block_m = p
+			# Rising ground blocks before its cover does; otherwise the canopy
+			# or rooftop is the culprit.
+			result.cause = "terrain" if bare > sightline + LOS_EPS_M else cover
 			return result
 		d += LOS_STEP_M
 	return result

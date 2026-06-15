@@ -6,9 +6,11 @@ extends Node2D
 ##
 ## Scenario selection order:
 ##   1. `--scenario=<path>` on the command line
-##   2. the bundled default (res://scenarios/waterloo/scenario.json)
-##   3. an open-file dialog if neither resolves
+##   2. if exactly one package sits in res://scenarios/, load it
+##   3. if several do, a startup picker (the bundled default preselected)
+##   4. an open-file dialog if none are discovered
 
+const SCENARIOS_DIR := "res://scenarios"
 const DEFAULT_SCENARIO := "res://scenarios/waterloo/scenario.json"
 
 var _board: BoardView
@@ -22,19 +24,57 @@ var _views: ViewManager
 var _hud: Hud
 
 func _ready() -> void:
-	var path := _resolve_scenario_path()
-	if path.is_empty() or not FileAccess.file_exists(path):
-		_prompt_for_scenario()
+	# 1. explicit --scenario= wins outright.
+	var explicit := _cmdline_scenario()
+	if not explicit.is_empty():
+		if FileAccess.file_exists(explicit):
+			_start(explicit)
+		else:
+			_fatal("Scenario not found:\n%s" % explicit)
 		return
-	_start(path)
 
-func _resolve_scenario_path() -> String:
+	# 2-4. discover packages in res://scenarios/ and decide.
+	var found := _discover_scenarios()
+	if found.is_empty():
+		_prompt_for_scenario()
+	elif found.size() == 1:
+		_start(found[0]["path"])
+	else:
+		_show_picker(found)
+
+func _cmdline_scenario() -> String:
 	for arg in OS.get_cmdline_args():
 		if arg.begins_with("--scenario="):
 			return arg.trim_prefix("--scenario=")
-	if FileAccess.file_exists(DEFAULT_SCENARIO):
-		return DEFAULT_SCENARIO
 	return ""
+
+## Scan res://scenarios/ for subdirectories holding a scenario.json, returning
+## ``{dir, path, name}`` dicts sorted by display name (default-first on ties).
+func _discover_scenarios() -> Array:
+	var out: Array = []
+	var dir := DirAccess.open(SCENARIOS_DIR)
+	if dir == null:
+		return out
+	dir.list_dir_begin()
+	var entry := dir.get_next()
+	while entry != "":
+		if dir.current_is_dir() and not entry.begins_with("."):
+			var path := "%s/%s/scenario.json" % [SCENARIOS_DIR, entry]
+			if FileAccess.file_exists(path):
+				out.append({"dir": entry, "path": path, "name": _peek_name(path, entry)})
+		entry = dir.get_next()
+	dir.list_dir_end()
+	out.sort_custom(func(a, b): return a["name"].naturalnocasecmp_to(b["name"]) < 0)
+	return out
+
+## Cheap metadata-name read for the picker (full parse happens on load).
+func _peek_name(path: String, fallback: String) -> String:
+	var text := FileAccess.get_file_as_string(path)
+	var data: Variant = JSON.parse_string(text)
+	if typeof(data) == TYPE_DICTIONARY:
+		var meta: Dictionary = data.get("metadata", {})
+		return str(meta.get("name", fallback))
+	return fallback
 
 func _start(path: String) -> void:
 	var scenario := Scenario.load_from_file(path)
@@ -86,6 +126,43 @@ func _start(path: String) -> void:
 	_hud.setup(_views, _ruler, _camera, _board, scenario, _rules, _overlay)
 
 	get_window().title = "Krieg — %s" % scenario.name()
+
+# --- Scenario picker --------------------------------------------------------
+
+func _show_picker(scenarios: Array) -> void:
+	var layer := CanvasLayer.new()
+	add_child(layer)
+	var dlg := AcceptDialog.new()
+	dlg.title = "Krieg — choose a scenario"
+	dlg.ok_button_text = "Open"
+
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(380, 240)
+	var preselect := 0
+	for i in scenarios.size():
+		var sc: Dictionary = scenarios[i]
+		list.add_item("%s    (%s)" % [sc["name"], sc["dir"]])
+		if sc["path"] == DEFAULT_SCENARIO:
+			preselect = i
+	list.select(preselect)
+	dlg.add_child(list)
+
+	var open := func(idx: int):
+		layer.queue_free()
+		_start(scenarios[idx]["path"])
+	dlg.confirmed.connect(func():
+		var sel := list.get_selected_items()
+		open.call(sel[0] if not sel.is_empty() else preselect))
+	list.item_activated.connect(open)
+
+	dlg.add_button("Browse…", true, "browse")
+	dlg.custom_action.connect(func(action):
+		if action == "browse":
+			layer.queue_free()
+			_prompt_for_scenario())
+
+	layer.add_child(dlg)
+	dlg.popup_centered()
 
 # --- Scenario fallback dialog -----------------------------------------------
 

@@ -16,6 +16,7 @@ from pathlib import Path
 import geopandas as gpd
 import requests
 from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import polygonize, unary_union
 
 from ..config import BBox
 from ..ruleset import Ruleset
@@ -33,6 +34,12 @@ _HEADERS = {"User-Agent": _USER_AGENT, "Accept": "application/json"}
 _AREA_KEYS = {"building", "landuse", "natural", "leisure", "amenity", "historic"}
 _LINE_KEYS = {"highway", "waterway", "barrier", "railway"}
 
+# Keys whose features commonly arrive as multipolygon *relations* (big lakes, the
+# bay, forests with clearings). Fetching relations for every key would balloon
+# the payload, so we only ask for the area-forming ones and assemble their
+# member ways into polygons (ADR-0003).
+_RELATION_KEYS = {"natural", "landuse", "leisure", "waterway"}
+
 
 @dataclass
 class Acquired:
@@ -46,6 +53,10 @@ def _build_query(bbox: BBox, fetch: list[str], timeout: int = 90) -> str:
     for key in fetch:
         selectors.append(f'  way["{key}"]({s},{w},{n},{e});')
         selectors.append(f'  node["{key}"]({s},{w},{n},{e});')
+        # Large water bodies, forests and the bay arrive as multipolygon
+        # relations, not ways — fetch them for the area-forming keys only.
+        if key in _RELATION_KEYS:
+            selectors.append(f'  relation["{key}"]({s},{w},{n},{e});')
     body = "\n".join(selectors)
     return (
         f"[out:json][timeout:{timeout}];\n"
@@ -76,7 +87,45 @@ def _element_geometry(el: dict):
             except Exception:  # noqa: BLE001 - degenerate ring
                 return None
         return LineString(coords)
+    if etype == "relation":
+        return _relation_geometry(el)
     return None
+
+
+def _relation_geometry(el: dict):
+    """Assemble a multipolygon relation's member ways into a (Multi)Polygon.
+
+    Overpass ``out geom`` inlines each member way's coordinates. We polygonise
+    the ``outer`` rings and punch out the ``inner`` ones (lakes-in-islands,
+    forest clearings). Members that don't close into rings are ignored, so a
+    relation that is really a route/boundary line yields nothing.
+    """
+    outer_lines: list[LineString] = []
+    inner_lines: list[LineString] = []
+    for member in el.get("members", []):
+        if member.get("type") != "way":
+            continue
+        geom = member.get("geometry")
+        if not geom or len(geom) < 2:
+            continue
+        coords = [(p["lon"], p["lat"]) for p in geom]
+        role = member.get("role")
+        (inner_lines if role == "inner" else outer_lines).append(
+            LineString(coords)
+        )
+    if not outer_lines:
+        return None
+    try:
+        outer = unary_union(list(polygonize(unary_union(outer_lines))))
+        if outer.is_empty:
+            return None
+        if inner_lines:
+            inner = unary_union(list(polygonize(unary_union(inner_lines))))
+            if not inner.is_empty:
+                outer = outer.difference(inner)
+        return outer if not outer.is_empty else None
+    except Exception:  # noqa: BLE001 - degenerate / unclosed relation
+        return None
 
 
 def fetch_osm(bbox: BBox, ruleset: Ruleset, session: requests.Session | None = None):

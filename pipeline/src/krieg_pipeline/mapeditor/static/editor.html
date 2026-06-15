@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Krieg — map selector</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+<style>
+  :root { --ink: #2b2419; --paper: #efe7d4; --line: #b9a87f; --accent: #7a3b2e; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; font-family: Georgia, "Times New Roman", serif; color: var(--ink); }
+  #app { display: flex; height: 100%; }
+  #map { flex: 1; }
+  #panel { width: 320px; background: var(--paper); border-left: 2px solid var(--line);
+           padding: 18px 20px; overflow-y: auto; }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: 0.5px; }
+  .sub { font-size: 12px; color: #6a5d44; margin: 0 0 16px; }
+  label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px;
+          margin: 12px 0 4px; color: #6a5d44; }
+  input[type=text], input[type=number] { width: 100%; padding: 6px 8px; border: 1px solid var(--line);
+          background: #fbf7ec; font: inherit; font-size: 14px; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 14px; }
+  .check input { width: auto; }
+  .bbox { font-family: "DejaVu Sans Mono", monospace; font-size: 12px; background: #fbf7ec;
+          border: 1px dashed var(--line); padding: 8px; margin-top: 6px; white-space: pre-wrap;
+          word-break: break-all; min-height: 38px; }
+  .meta { font-size: 12px; color: #6a5d44; margin: 6px 0 0; }
+  button { margin-top: 18px; width: 100%; padding: 10px; font: inherit; font-size: 15px;
+           background: var(--accent); color: #f4ead6; border: none; cursor: pointer; letter-spacing: 0.4px; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  #status { margin-top: 12px; font-size: 13px; min-height: 18px; }
+  #status.ok { color: #2f6b34; } #status.err { color: var(--accent); }
+  #status code { display: block; margin-top: 6px; font-size: 11px; background: #fbf7ec;
+           border: 1px solid var(--line); padding: 6px; word-break: break-all; color: var(--ink); }
+  .hint { font-size: 11px; color: #8a7c5f; margin-top: 4px; }
+  .existing { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .existing a { display: block; color: var(--accent); font-size: 13px; padding: 3px 0; cursor: pointer; text-decoration: none; }
+  .existing a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <div id="panel">
+    <h1>Krieg map selector</h1>
+    <p class="sub">Draw the battlefield on OpenStreetMap, set the period, save a scenario.</p>
+
+    <label for="name">Scenario name</label>
+    <input type="text" id="name" placeholder="e.g. quatre-bras" />
+
+    <label>Bounding box (WGS84)</label>
+    <div class="bbox" id="bboxText">— draw a rectangle on the map —</div>
+    <p class="meta" id="areaText"></p>
+    <p class="hint">Use the ▭ tool (top-left of the map) to draw, then drag its handles to adjust.</p>
+
+    <div class="row">
+      <div>
+        <label for="year">Target year</label>
+        <input type="number" id="year" value="1880" min="1860" max="1917" />
+      </div>
+      <div>
+        <label for="contour">Contour (m)</label>
+        <input type="number" id="contour" value="10" min="0.1" step="0.5" />
+      </div>
+    </div>
+
+    <div class="check">
+      <input type="checkbox" id="cluster" checked />
+      <label for="cluster" style="margin:0; text-transform:none; letter-spacing:0;">Cluster dense buildings into village blocks</label>
+    </div>
+
+    <button id="save" disabled>Save scenario</button>
+    <div id="status"></div>
+
+    <div class="existing" id="existing"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script>
+const map = L.map('map').setView([50.6825, 4.405], 13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '© OpenStreetMap contributors (ODbL)'
+}).addTo(map);
+
+const drawn = new L.FeatureGroup().addTo(map);
+const existingLayer = new L.FeatureGroup().addTo(map);
+let bbox = null; // [minLon, minLat, maxLon, maxLat]
+
+const drawControl = new L.Control.Draw({
+  draw: { rectangle: { shapeOptions: { color: '#7a3b2e', weight: 2 } },
+          polygon: false, polyline: false, circle: false, marker: false, circlemarker: false },
+  edit: { featureGroup: drawn, remove: true }
+});
+map.addControl(drawControl);
+
+const $ = (id) => document.getElementById(id);
+
+function setBboxFromLayer(layer) {
+  drawn.clearLayers();
+  drawn.addLayer(layer);
+  const b = layer.getBounds();
+  bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  refreshBbox();
+}
+
+function refreshBbox() {
+  if (!bbox) {
+    $('bboxText').textContent = '— draw a rectangle on the map —';
+    $('areaText').textContent = '';
+    $('save').disabled = true;
+    return;
+  }
+  const [w, s, e, n] = bbox;
+  $('bboxText').textContent = `${w.toFixed(5)}, ${s.toFixed(5)},\n${e.toFixed(5)}, ${n.toFixed(5)}`;
+  // rough metric size at this latitude
+  const midLat = (s + n) / 2 * Math.PI / 180;
+  const kmW = (e - w) * 111.32 * Math.cos(midLat);
+  const kmH = (n - s) * 110.57;
+  $('areaText').textContent = `≈ ${kmW.toFixed(1)} × ${kmH.toFixed(1)} km`;
+  $('save').disabled = false;
+}
+
+map.on(L.Draw.Event.CREATED, (e) => setBboxFromLayer(e.layer));
+map.on(L.Draw.Event.EDITED, (e) => e.layers.eachLayer(setBboxFromLayer));
+map.on(L.Draw.Event.DELETED, () => { bbox = null; refreshBbox(); });
+
+$('save').addEventListener('click', async () => {
+  const status = $('status');
+  status.className = ''; status.textContent = 'Saving…';
+  const body = {
+    name: $('name').value || 'untitled',
+    bbox: bbox,
+    target_year: parseInt($('year').value, 10),
+    contour_interval_m: parseFloat($('contour').value),
+    cluster_buildings: $('cluster').checked,
+  };
+  try {
+    const res = await fetch('/api/scenario', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    status.className = 'ok';
+    status.innerHTML = `Saved <b>${data.file}</b><code>${data.build_cmd}</code>`;
+    loadExisting();
+  } catch (err) {
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+});
+
+async function loadExisting() {
+  const res = await fetch('/api/scenarios');
+  const { scenarios } = await res.json();
+  existingLayer.clearLayers();
+  const box = $('existing');
+  box.innerHTML = scenarios.length ? '<label style="margin-top:0">Existing scenarios</label>' : '';
+  scenarios.forEach((sc) => {
+    const [w, s, e, n] = sc.bbox;
+    const rect = L.rectangle([[s, w], [n, e]], { color: '#6a5d44', weight: 1, dashArray: '4', fillOpacity: 0.04 });
+    rect.bindTooltip(sc.name);
+    existingLayer.addLayer(rect);
+    const a = document.createElement('a');
+    a.textContent = '▭ ' + sc.name + '  (' + sc.file + ')';
+    a.onclick = () => {
+      map.fitBounds([[s, w], [n, e]]);
+      $('name').value = sc.name;
+      $('year').value = sc.target_year;
+      $('contour').value = sc.contour_interval_m;
+      $('cluster').checked = sc.cluster_buildings;
+      const layer = L.rectangle([[s, w], [n, e]], { color: '#7a3b2e', weight: 2 });
+      setBboxFromLayer(layer);
+    };
+    box.appendChild(a);
+  });
+}
+
+loadExisting();
+</script>
+</body>
+</html>

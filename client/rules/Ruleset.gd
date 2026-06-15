@@ -60,6 +60,28 @@ func cost_per_metre(unit_type: String, terrain: String) -> float:
 		return INF
 	return budget / rate
 
+# --- Slope (shared engine maths) --------------------------------------------
+
+## Extra cost multiplier for crossing ground at `grade` (rise/run, signed:
+## positive uphill, negative downhill). Open ground on the flat is 1.0. Climbing
+## is dear, a gentle descent is a little quicker, and a steep descent slows again
+## as troops have to brake — so reach bulges downhill and pinches uphill instead
+## of being a plain circle. Provisional constants (ADR-0007), shared by every
+## ruleset; override to retune. INF-safe: the engine multiplies cost_per_metre.
+const UPHILL_COST := 4.0           # per unit of uphill grade
+const DOWNHILL_EASE := 1.6         # gentle descent speeds a unit up
+const DOWNHILL_BRAKE := 3.0        # steep descent slows it again
+const DOWNHILL_EASY_GRADE := 0.18  # grade past which descent stops helping
+const SLOPE_FACTOR_FLOOR := 0.4    # downhill can never be a free-fall
+
+func slope_cost_factor(grade: float) -> float:
+	if grade >= 0.0:
+		return 1.0 + UPHILL_COST * grade
+	var drop := -grade
+	var ease := DOWNHILL_EASE * minf(drop, DOWNHILL_EASY_GRADE)
+	var brake := DOWNHILL_BRAKE * maxf(0.0, drop - DOWNHILL_EASY_GRADE)
+	return maxf(SLOPE_FACTOR_FLOOR, 1.0 - ease + brake)
+
 # --- Line of sight (override the heights) -----------------------------------
 
 ## Eye height of a standing/mounted observer above the ground, in metres.

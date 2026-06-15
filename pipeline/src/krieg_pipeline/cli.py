@@ -2,6 +2,7 @@
 
     krieg-pipeline build --scenario scenarios/waterloo.yaml --out out/waterloo
     krieg-pipeline build --bbox 4.38,50.66,4.43,50.70 --year 1880 --out out/demo
+    krieg-pipeline select                 # GUI: draw a bbox on OSM → scenario YAML
 """
 
 from __future__ import annotations
@@ -70,6 +71,18 @@ def cmd_preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_select(args: argparse.Namespace) -> int:
+    from .mapeditor import serve
+
+    serve(
+        Path(args.scenarios_dir),
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_browser,
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="krieg-pipeline", description=__doc__)
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
@@ -92,6 +105,21 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("scenario", help="scenario.json (or its package directory)")
     pv.add_argument("--out", help="output PNG (default: <package>/preview.png)")
     pv.set_defaults(func=cmd_preview)
+
+    sel = sub.add_parser(
+        "select", help="open the OSM map selector GUI to author a scenario"
+    )
+    sel.add_argument(
+        "--scenarios-dir",
+        default="scenarios",
+        help="where to write scenario YAMLs (default: scenarios/)",
+    )
+    sel.add_argument("--host", default="127.0.0.1", help="bind host")
+    sel.add_argument("--port", type=int, default=8682, help="bind port")
+    sel.add_argument(
+        "--no-browser", action="store_true", help="don't auto-open a browser"
+    )
+    sel.set_defaults(func=cmd_select)
     return p
 
 

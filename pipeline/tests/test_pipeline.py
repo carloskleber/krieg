@@ -11,7 +11,9 @@ from shapely.geometry import LineString, Polygon
 
 from krieg_pipeline.config import BBox, ScenarioConfig
 from krieg_pipeline.ruleset import Ruleset
+from krieg_pipeline.stages.acquire import _relation_geometry
 from krieg_pipeline.stages.classify import classify
+from krieg_pipeline.stages.coastline import synthesize_water
 from krieg_pipeline.stages.contour import (
     HEIGHTMAP_ENCODING,
     Relief,
@@ -190,3 +192,52 @@ def test_contour_emits_heightmap_asset(tmp_path: Path):
 def _features_geo():
     kept, _ = filter_features(_features(), Ruleset.load(None), year=1880)
     return kept
+
+
+def test_coastline_synthesizes_sea_around_island():
+    from shapely.geometry import Point
+
+    # A square island, walked counter-clockwise so land sits on the left
+    # (the OSM coastline convention). Fully inside the bbox.
+    ring = [
+        (4.40, 50.67), (4.41, 50.67), (4.41, 50.68), (4.40, 50.68), (4.40, 50.67)
+    ]
+    feats = gpd.GeoDataFrame(
+        [{"osm_id": 1, "osm_type": "way", "tags": {"natural": "coastline"},
+          "geometry": LineString(ring)}],
+        geometry="geometry", crs="EPSG:4326",
+    )
+    out, n = synthesize_water(feats, BBOX)
+    assert n >= 1
+    is_water = out["tags"].apply(lambda t: t.get("natural") == "water")
+    is_coast = out["tags"].apply(lambda t: t.get("natural") == "coastline")
+    assert is_water.any()       # sea synthesised
+    assert not is_coast.any()   # raw shore ways dropped
+    sea = out[is_water].geometry.union_all()
+    assert sea.contains(Point(4.385, 50.665))      # near a corner -> open sea
+    assert not sea.contains(Point(4.405, 50.675))  # island interior -> land
+
+
+def test_coastline_noop_without_shore():
+    out, n = synthesize_water(_features(), BBOX)
+    assert n == 0
+    assert len(out) == len(_features())
+
+
+def test_relation_assembles_multipolygon_with_hole():
+    el = {
+        "type": "relation",
+        "tags": {"natural": "water", "type": "multipolygon"},
+        "members": [
+            {"type": "way", "role": "outer", "geometry": [
+                {"lon": 0, "lat": 0}, {"lon": 2, "lat": 0},
+                {"lon": 2, "lat": 2}, {"lon": 0, "lat": 2}, {"lon": 0, "lat": 0}]},
+            {"type": "way", "role": "inner", "geometry": [
+                {"lon": 0.5, "lat": 0.5}, {"lon": 1.5, "lat": 0.5},
+                {"lon": 1.5, "lat": 1.5}, {"lon": 0.5, "lat": 1.5},
+                {"lon": 0.5, "lat": 0.5}]},
+        ],
+    }
+    geom = _relation_geometry(el)
+    assert geom is not None
+    assert geom.area == pytest.approx(4.0 - 1.0)   # outer minus the clearing

@@ -29,6 +29,27 @@ krieg-pipeline build --scenario scenarios/waterloo.yaml --out out/waterloo
 krieg-pipeline build --bbox 4.38,50.66,4.43,50.70 --year 1880 --out out/demo
 ```
 
+### Pick an area graphically
+
+Rather than hand-writing a bbox, launch the **map selector** — a small local web
+tool that opens an OpenStreetMap slippy map in your browser:
+
+```bash
+krieg-pipeline select        # opens http://127.0.0.1:8682/
+```
+
+Draw the battlefield rectangle with the ▭ tool, set the period knobs (target
+year, contour interval, building clustering) and **Save scenario** — it writes a
+validated `scenarios/<name>.yaml` and prints the exact `build` command to run.
+Existing scenarios are drawn on the map and reloadable into the form.
+
+This is the seed of the future **map editor** (PLAN §8): today it owns only the
+*select a location* step, but the Leaflet draw/edit surface is the foundation for
+later per-feature editing. The page needs internet for OSM tiles; the native
+half writes scenarios through the same `ScenarioConfig` the CLI uses, so it can
+never emit a package the pipeline would reject. Lives in
+[`src/krieg_pipeline/mapeditor/`](src/krieg_pipeline/mapeditor/).
+
 The output directory is a scenario package (ADR-0004):
 
 ```

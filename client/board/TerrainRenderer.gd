@@ -11,11 +11,13 @@ var _contour_interval := 10.0
 var _elev_lo := 0.0
 var _elev_hi := 1.0
 
-# Pre-converted, layered draw lists (world space).
-var _fields: Array[PackedVector2Array] = []
-var _woods: Array[PackedVector2Array] = []
-var _waters: Array[PackedVector2Array] = []
-var _settlements: Array[PackedVector2Array] = []
+# Pre-converted, layered draw lists (world space). Polygon layers carry holes so
+# a ring-with-clearing (an island in the sea, a glade in a wood) reads right
+# instead of flooding the hole — each entry is {outer, holes:Array}.
+var _fields: Array = []
+var _woods: Array = []
+var _waters: Array = []
+var _settlements: Array = []
 var _buildings: Array = []          # {ring:PackedVector2Array, strongpoint:bool}
 var _roads: Array = []              # {pts:PackedVector2Array, style:Dictionary}
 var _bridges: Array[PackedVector2Array] = []
@@ -66,12 +68,18 @@ func _is_index_contour(elev: float) -> bool:
 	return n % 5 == 0
 
 func _add_polys(f: Scenario.Feature, into: Array) -> void:
-	for ring in _world_rings(f):
-		into.append(ring)
+	# Holes (Scenario stores them) belong to the first/primary ring only.
+	var holes := _world_rings_of(f.holes)
+	var outers := _world_rings(f)
+	for i in outers.size():
+		into.append({"outer": outers[i], "holes": holes if i == 0 else []})
 
 func _world_rings(f: Scenario.Feature) -> Array:
+	return _world_rings_of(f.parts)
+
+func _world_rings_of(rings: Array) -> Array:
 	var out := []
-	for part in f.parts:
+	for part in rings:
 		var w := PackedVector2Array()
 		w.resize(part.size())
 		for i in part.size():
@@ -85,26 +93,26 @@ func _draw() -> void:
 	if _scenario == null:
 		return
 	# Bottom-to-top order, like a printed staff map.
-	for ring in _fields:
-		_fill(ring, FeatureStyles.FIELD_FILL)
-	for ring in _woods:
-		_fill(ring, FeatureStyles.WOOD_FILL)
-		draw_polyline(_closed(ring), FeatureStyles.WOOD_LINE, 1.5)
-	for ring in _waters:
-		_fill(ring, FeatureStyles.WATER_FILL)
-		draw_polyline(_closed(ring), FeatureStyles.WATER_LINE, 1.5)
+	for poly in _fields:
+		_fill(poly, FeatureStyles.FIELD_FILL)
+	for poly in _woods:
+		_fill(poly, FeatureStyles.WOOD_FILL)
+		_stroke(poly, FeatureStyles.WOOD_LINE, 1.5)
+	for poly in _waters:
+		_fill(poly, FeatureStyles.WATER_FILL)
+		_stroke(poly, FeatureStyles.WATER_LINE, 1.5)
 	for c in _contours:
 		var w: float = 2.2 if c.index else 1.0
 		draw_polyline(c.pts, c.color, w)
-	for ring in _settlements:
-		_fill(ring, FeatureStyles.SETTLEMENT_FILL)
-		draw_polyline(_closed(ring), FeatureStyles.SETTLEMENT_LINE, 1.0)
+	for poly in _settlements:
+		_fill(poly, FeatureStyles.SETTLEMENT_FILL)
+		_stroke(poly, FeatureStyles.SETTLEMENT_LINE, 1.0)
 	for r in _roads:
 		_draw_road(r.pts, r.style)
 	for pts in _bridges:
 		draw_polyline(pts, FeatureStyles.BRIDGE, 5.0)
 	for b in _buildings:
-		_fill(b.ring, FeatureStyles.BUILDING_FILL)
+		_fill({"outer": b.ring, "holes": []}, FeatureStyles.BUILDING_FILL)
 		if b.ring.size() < 2:
 			continue  # a degenerate footprint has no outline to stroke
 		if b.strongpoint:
@@ -139,19 +147,72 @@ func _draw_dashed(pts: PackedVector2Array, color: Color, width: float) -> void:
 			draw_line(a + dir * t, a + dir * t2, color, width)
 			t = t2 + gap
 
-func _fill(ring: PackedVector2Array, color: Color) -> void:
-	# GeoJSON rings repeat the first vertex to close; triangulation wants it open.
-	var open := ring
-	if open.size() >= 2 and open[0] == open[open.size() - 1]:
-		open = open.slice(0, open.size() - 1)
-	if open.size() < 3:
+func _fill(poly: Dictionary, color: Color) -> void:
+	var outer: PackedVector2Array = _open(poly.outer)
+	if outer.size() < 3:
 		return
-	# draw_colored_polygon fills a simple (concave-ok) polygon by triangulating
-	# internally. Validate first so degenerate/self-intersecting rings are
-	# skipped quietly (their outline still draws) instead of spamming errors.
-	if Geometry2D.triangulate_polygon(open).is_empty():
+	# Cut each hole into the outer ring with a hairline seam so the result is one
+	# simple polygon draw_colored_polygon can triangulate with the hole excluded.
+	var ring := outer
+	for h in poly.get("holes", []):
+		ring = _bridge_hole(ring, _open(h))
+	# Validate first so degenerate/self-intersecting rings are skipped quietly
+	# (their outline still draws) instead of spamming errors.
+	if Geometry2D.triangulate_polygon(ring).is_empty():
 		return
-	draw_colored_polygon(open, color)
+	draw_colored_polygon(ring, color)
+
+func _stroke(poly: Dictionary, color: Color, width: float) -> void:
+	if poly.outer.size() >= 2:
+		draw_polyline(_closed(poly.outer), color, width)
+	for h in poly.get("holes", []):
+		if h.size() >= 2:
+			draw_polyline(_closed(h), color, width)
+
+# Splice `hole` into `ring` via the nearest pair of vertices, doubling the seam
+# so the path runs out to the hole, around it, and back — the standard way to
+# fold a hole into a simple polygon for triangulation. The hole is walked in the
+# opposite winding to the ring so its area is subtracted, not added.
+func _bridge_hole(ring: PackedVector2Array, hole: PackedVector2Array) -> PackedVector2Array:
+	if hole.size() < 3:
+		return ring
+	if signf(_signed_area(hole)) == signf(_signed_area(ring)):
+		hole.reverse()
+	var bi := 0
+	var bj := 0
+	var best := INF
+	for i in ring.size():
+		for j in hole.size():
+			var d := ring[i].distance_squared_to(hole[j])
+			if d < best:
+				best = d
+				bi = i
+				bj = j
+	var out := PackedVector2Array()
+	for k in range(bi + 1):
+		out.append(ring[k])
+	for k in hole.size():
+		out.append(hole[(bj + k) % hole.size()])
+	out.append(hole[bj])      # close the hole loop
+	out.append(ring[bi])      # seam back to the outer ring
+	for k in range(bi + 1, ring.size()):
+		out.append(ring[k])
+	return out
+
+func _signed_area(ring: PackedVector2Array) -> float:
+	var a := 0.0
+	var n := ring.size()
+	for i in n:
+		var p := ring[i]
+		var q := ring[(i + 1) % n]
+		a += p.x * q.y - q.x * p.y
+	return a * 0.5
+
+# Drop a ring's repeated closing vertex (triangulation wants it open).
+func _open(ring: PackedVector2Array) -> PackedVector2Array:
+	if ring.size() >= 2 and ring[0] == ring[ring.size() - 1]:
+		return ring.slice(0, ring.size() - 1)
+	return ring
 
 func _closed(ring: PackedVector2Array) -> PackedVector2Array:
 	if ring.size() >= 2 and ring[0] != ring[ring.size() - 1]:

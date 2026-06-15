@@ -18,7 +18,9 @@ who advises rather than dictates.
 
 - **Godot 4.2+** (standard build, GDScript only — no C#, no GDExtension).
 - A scenario package. One is bundled: [`scenarios/waterloo/`](scenarios/waterloo/)
-  (copied from `pipeline/out/waterloo`).
+  (copied from `pipeline/out/waterloo`). Drop more package directories (each a
+  `scenario.json` + `assets/`) into [`scenarios/`](scenarios/) and the app will
+  discover them — build them with `krieg-pipeline build … --out client/scenarios/<name>`.
 
 ## Running
 
@@ -27,11 +29,21 @@ From the editor: open this folder (`client/`) as a Godot project and press Play.
 From the command line:
 
 ```bash
-godot --path client                          # uses the bundled waterloo scenario
+godot --path client                          # discovers scenarios/ (see below)
 godot --path client -- --scenario=/abs/path/to/scenario.json
 ```
 
-If no scenario is found, the app opens a file picker for a `scenario.json`.
+Scenario selection at startup:
+
+1. an explicit `--scenario=<path>` always wins;
+2. otherwise the app scans [`scenarios/`](scenarios/) for packages —
+   if exactly one is present it loads it, if several it shows a **picker**
+   (the bundled `waterloo` preselected);
+3. if none are found, it opens a file dialog for a `scenario.json`.
+
+> **Note:** the client consumes *built* packages (`scenario.json` + `assets/`),
+> not the pipeline's input `*.yaml`. Copying a scenario YAML into `scenarios/`
+> does nothing — run `krieg-pipeline build` first.
 
 ## Controls
 

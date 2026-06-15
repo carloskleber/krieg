@@ -31,6 +31,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/krieg_pipeline"]
+# Ship the map-selector front-end (non-Python data) inside the wheel.
+artifacts = ["src/krieg_pipeline/mapeditor/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
