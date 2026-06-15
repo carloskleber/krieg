@@ -11,6 +11,7 @@ const DEFAULT_EXAGGERATION := 3.0
 var scenario: Scenario
 var heightfield: Heightfield
 var terrain: TerrainMesh3D
+var volumes: FeatureVolumes3D
 var camera: CameraController3D
 var piece_layer: Piece3DLayer
 
@@ -30,6 +31,11 @@ func build(s: Scenario, exaggeration := DEFAULT_EXAGGERATION) -> void:
 	terrain.name = "Terrain"
 	add_child(terrain)
 	await terrain.build(s, heightfield, _exag)
+
+	volumes = FeatureVolumes3D.new()
+	volumes.name = "Volumes"
+	add_child(volumes)
+	volumes.build(s, heightfield, _exag)
 
 	camera = CameraController3D.new()
 	camera.name = "Camera3D"
@@ -58,8 +64,16 @@ func exaggeration() -> float:
 func set_exaggeration(value: float) -> void:
 	if is_equal_approx(value, _exag) or terrain == null:
 		return
+	var ratio := value / _exag if _exag > 0.0 else 1.0
 	_exag = value
 	terrain.set_exaggeration(value)
+	if volumes != null:
+		volumes.set_exaggeration(value)
+	if camera != null:
+		# Heights scale linearly with exaggeration, so the orbit pivot (parked at
+		# the old exaggerated mid-height) must rescale too — otherwise it floats
+		# above the board as relief flattens, dragging the centre of rotation up.
+		camera.rescale_height(ratio)
 	if piece_layer != null:
 		# Re-seat pieces on the new surface (positions in metres are unchanged).
 		piece_layer.deserialize(piece_layer.serialize())

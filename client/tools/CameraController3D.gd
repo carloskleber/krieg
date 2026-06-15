@@ -41,6 +41,13 @@ func frame_board(size_m: Vector2, centre_height: float) -> void:
 	make_current()
 	_apply()
 
+## Rescale the orbit pivot's height when vertical exaggeration changes, so the
+## centre of rotation keeps tracking the same ground point as relief grows or
+## flattens (the focus's x/z, i.e. where the player has panned, is left alone).
+func rescale_height(ratio: float) -> void:
+	_focus.y *= ratio
+	_apply()
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		match event.button_index:
