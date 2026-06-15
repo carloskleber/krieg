@@ -1,0 +1,35 @@
+[project]
+name = "krieg-pipeline"
+version = "0.1.0"
+description = "Krieg map pipeline — turns OSM + a DEM into a period scenario package (Phase 0)."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "ck" }]
+
+dependencies = [
+    "geopandas>=1.0",
+    "shapely>=2.0",
+    "pyproj>=3.6",
+    "rasterio>=1.3",
+    "numpy>=1.26",
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+krieg-pipeline = "krieg_pipeline.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/krieg_pipeline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -4,9 +4,11 @@ A desktop **Kriegsspiel** (war game) played on real-world terrain sourced from
 OpenStreetMap, re-skinned to emulate a 19th-century battlefield. Units are
 rendered as "wooden pieces" on a map that behaves like a tabletop board.
 
-> Status: **Concept / planning.** Nothing is implemented yet. This document and
-> the ADRs in [`docs/adr/`](adr/) define the intended design. Decisions are
-> *Proposed* until ratified.
+> Status: **Phase 0 implemented.** The offline map pipeline (M0 spike) is built
+> and runs end to end — a bbox becomes a versioned scenario package. See
+> [`pipeline/`](../pipeline/). Phases 1+ (the game client) are still design-only.
+> The ADRs in [`docs/adr/`](adr/) define the design; the Phase-0 ADRs (0002,
+> 0003, 0004, 0006) are now *Accepted*, the rest remain *Proposed*.
 
 ---
 
@@ -49,18 +51,22 @@ board. Wooden-block style pieces are placed and moved on top.
 
 ## 2. Scope by phase
 
-### Phase 0 — Map pipeline (offline tooling)
+### Phase 0 — Map pipeline (offline tooling) — ✅ implemented
 Turn a bounding box / place name into a **scenario package**: a self-contained
 bundle of period-filtered, projected map features plus generated topography.
 No game yet. Validated by visual inspection of rendered output.
 
-- Download OSM extract for an area (Overpass / `.osm.pbf`).
-- Download a DEM for the same area (elevation).
-- Filter & reclassify features into period categories (ADR-0006).
-- Project to a local metric CRS so the board is flat and in real metres
-  (ADR-0004).
-- Generate contour lines / hillshade from the DEM.
-- Emit a versioned `scenario.json` + assets.
+Built as the Python CLI in [`pipeline/`](../pipeline/) (`krieg-pipeline build`),
+a chain of testable stages `acquire → clip → filter → reproject → contour →
+classify → emit` (ADR-0003). The M0 spike runs end to end on the bundled
+[`waterloo`](../pipeline/scenarios/waterloo.yaml) scenario.
+
+- [x] Download OSM extract for an area (Overpass; `.osm.pbf` path TBD for large areas).
+- [x] Download a DEM for the same area (Copernicus GLO-30, ADR-0002).
+- [x] Filter & reclassify features into period categories (declarative ruleset, ADR-0006).
+- [x] Project to a local metric CRS so the board is flat and in real metres (ADR-0004).
+- [x] Generate contour lines / hillshade from the DEM.
+- [x] Emit a versioned `scenario.json` + assets, plus a `preview` quick-look renderer.
 
 ### Phase 1 — Tabletop sandbox (the MVP)
 A desktop application that loads a scenario package and lets one person (or two,
@@ -177,8 +183,9 @@ context rather than re-argued from scratch.
 
 ## 6. Roadmap & milestones
 
-- **M0 — Pipeline spike.** One hard-coded bbox → a `scenario.json` you can open
-  and eyeball as plotted polygons. Proves the data path end to end.
+- **M0 — Pipeline spike.** ✅ *Done (2026-06-14).* One bbox → a `scenario.json`
+  you can open and eyeball as plotted polygons (`krieg-pipeline build … --preview`).
+  Proves the data path end to end; validated on the Waterloo bbox.
 - **M1 — Board renderer.** Game client loads `scenario.json` and draws the
   period board (terrain, water, woods, roads, buildings, contours) with
   pan/zoom/measure.

@@ -1,6 +1,6 @@
 # ADR-0003: Map ingestion pipeline in Python
 
-- **Status:** Proposed
+- **Status:** Accepted (realised by the Phase 0 pipeline, 2026-06-14)
 - **Date:** 2026-06-14
 - **Deciders:** project owner
 

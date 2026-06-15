@@ -11,13 +11,14 @@ Format: lightweight [MADR](https://adr.github.io/madr/)-style. Template:
 | #    | Title                                          | Status   |
 |------|------------------------------------------------|----------|
 | 0001 | Game client engine: Godot 4                     | Proposed |
-| 0002 | Map & elevation data sources and licensing      | Proposed |
-| 0003 | Map ingestion pipeline in Python                | Proposed |
-| 0004 | Scenario package format & coordinate system     | Proposed |
+| 0002 | Map & elevation data sources and licensing      | Accepted |
+| 0003 | Map ingestion pipeline in Python                | Accepted |
+| 0004 | Scenario package format & coordinate system     | Accepted |
 | 0005 | Rules approach: sandbox first, pluggable engine | Proposed |
-| 0006 | 19th-century adaptation as declarative filters  | Proposed |
+| 0006 | 19th-century adaptation as declarative filters  | Accepted |
 | 0007 | Game scale & movement model                     | Proposed |
 | 0008 | AI agent integration seam (future)              | Proposed |
 
-All ADRs are currently **Proposed** — this is a planning snapshot. They become
-*Accepted* when implementation on the corresponding milestone begins.
+ADRs 0002/0003/0004/0006 were **Accepted** when the Phase 0 pipeline
+([`../../pipeline/`](../../pipeline/)) implemented them (2026-06-14). The rest
+remain **Proposed** — they become *Accepted* when their milestone begins.

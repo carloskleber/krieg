@@ -1,0 +1,158 @@
+# Krieg default period ruleset (ADR-0006)
+#
+# Declarative 19th-century adaptation: maps OSM tags -> an action and a board
+# category (ADR-0004). This is DATA, not code — edit it (or override per
+# scenario) to change the period look without touching the pipeline.
+#
+# Evaluation: rules are tried top-to-bottom; the FIRST whose `when` matches wins.
+#   when:  all listed tag conditions must hold. A value may be:
+#            "*"          -> key present with any value
+#            "name"       -> key equals "name"
+#            [a, b, c]     -> key value is one of the list
+#   years: [min, max]  (optional) rule only active when target_year is in range
+#   action: drop | keep
+#   category / props are attached to kept features.
+#
+# Anything matching no rule is dropped and counted in the "unclassified" report
+# so authors can spot gaps in worldwide OSM tagging.
+
+version: 1
+
+# Overpass fetch selectors (acquire stage). Keep broad; the rules below decide
+# what survives. Each entry is an Overpass tag filter applied to ways & relations.
+fetch:
+  - "highway"
+  - "waterway"
+  - "natural"
+  - "landuse"
+  - "leisure"
+  - "building"
+  - "railway"
+  - "man_made"
+  - "amenity"
+  - "historic"
+  - "bridge"
+  - "ford"
+
+rules:
+  # --- Drop anachronisms ----------------------------------------------------
+  - name: drop-motorways
+    when: { highway: [motorway, motorway_link, trunk, trunk_link] }
+    action: drop
+  - name: drop-power
+    when: { power: "*" }
+    action: drop
+  - name: drop-railways            # no railways before the period; flip years to keep
+    when: { railway: "*" }
+    action: drop
+    years: [1860, 1859]            # inactive by default (min>max) -> always dropped
+  - name: drop-modern-landuse
+    when: { landuse: [industrial, retail, commercial, garages, railway, construction] }
+    action: drop
+  - name: drop-aeroway
+    when: { aeroway: "*" }
+    action: drop
+
+  # --- Tactical strongpoints (kept individually, ADR-0006) ------------------
+  - name: keep-church
+    when: { amenity: place_of_worship }
+    action: keep
+    category: building
+    building_role: strongpoint
+  - name: keep-historic-building
+    when: { historic: [castle, fort, manor, church, monastery] }
+    action: keep
+    category: building
+    building_role: strongpoint
+  - name: keep-mill
+    when: { man_made: [windmill, watermill] }
+    action: keep
+    category: building
+    building_role: strongpoint
+
+  # --- Crossings ------------------------------------------------------------
+  - name: keep-ford
+    when: { ford: "*" }
+    action: keep
+    category: ford
+  - name: keep-bridge
+    when: { bridge: "*" }
+    action: keep
+    category: bridge
+
+  # --- Period roads (demote to a small class set, ADR-0006) -----------------
+  - name: road-chaussee
+    when: { highway: [primary, primary_link, secondary, secondary_link] }
+    action: keep
+    category: road
+    road_class: chaussee          # metalled high road
+  - name: road-country
+    when: { highway: [tertiary, tertiary_link, unclassified, residential, living_street] }
+    action: keep
+    category: road
+    road_class: country_road
+  - name: road-track
+    when: { highway: [track, service] }
+    action: keep
+    category: road
+    road_class: track
+  - name: road-path
+    when: { highway: [path, footway, bridleway, cycleway, steps] }
+    action: keep
+    category: road
+    road_class: path
+
+  # --- Water ----------------------------------------------------------------
+  - name: water-area
+    when: { natural: water }
+    action: keep
+    category: water
+  - name: water-area-landuse
+    when: { landuse: [reservoir, basin] }
+    action: keep
+    category: water
+  - name: waterway-river
+    when: { waterway: [river, canal] }
+    action: keep
+    category: water
+    water_class: river
+  - name: waterway-stream
+    when: { waterway: [stream, ditch, drain] }
+    action: keep
+    category: water
+    water_class: stream
+
+  # --- Woods ----------------------------------------------------------------
+  - name: wood-natural
+    when: { natural: wood }
+    action: keep
+    category: wood
+  - name: wood-landuse
+    when: { landuse: forest }
+    action: keep
+    category: wood
+
+  # --- Open ground: fields, heath, meadow -----------------------------------
+  - name: field-farmland
+    when: { landuse: [farmland, meadow, orchard, vineyard, farmyard] }
+    action: keep
+    category: field
+  - name: field-heath
+    when: { natural: [heath, scrub, grassland, fell, moor] }
+    action: keep
+    category: field
+  - name: field-leisure
+    when: { leisure: [park, common, golf_course] }
+    action: keep
+    category: field
+
+  # --- Settlement & generic buildings (clustered later, ADR-0006) -----------
+  - name: keep-building
+    when: { building: "*" }
+    action: keep
+    category: building
+    building_role: ordinary
+  - name: keep-residential
+    when: { landuse: residential }
+    action: keep
+    category: settlement

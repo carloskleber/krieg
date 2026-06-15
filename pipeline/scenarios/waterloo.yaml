@@ -1,0 +1,8 @@
+# M0 spike scenario — the Waterloo battlefield south of Brussels.
+# A small, gently-rolling area with farms (Hougoumont, La Haye Sainte), woods,
+# and country roads — good for eyeballing the period transformation.
+name: waterloo
+bbox: [4.380, 50.665, 4.430, 50.700]
+target_year: 1880
+contour_interval_m: 10.0
+cluster_buildings: true
