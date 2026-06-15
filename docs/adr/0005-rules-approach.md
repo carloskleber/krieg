@@ -1,7 +1,7 @@
 # ADR-0005: Rules approach — sandbox first, pluggable engine later
 
-- **Status:** Proposed
-- **Date:** 2026-06-14
+- **Status:** Accepted
+- **Date:** 2026-06-14 (accepted 2026-06-15, Phase 2 / M4)
 - **Deciders:** project owner
 
 ## Context
@@ -61,3 +61,16 @@ seed)`.
   without re-architecting — the edition is a per-ruleset choice, not a global one.
 - Keeping rules engine-agnostic constrains how tightly the client may couple
   selection/animation to game logic.
+
+## Realised by (M4, 2026-06-15)
+
+The advisory half is built in [`client/rules/`](../../client/rules/): a
+renderer-free `Ruleset` base (the narrow interface — rates, LOS params, shared
+cost maths) with a `Strategos` implementation, composed by `RulesEngine` over a
+`TerrainModel` and `ElevationField` derived from the scenario. The engine
+exposes two pure queries — `reachable_region(unit, origin)` and
+`line_of_sight(unit, from, to)` — drawn by `RulesOverlay` as a reach polygon and
+a sight probe. Rules are **opt-in** (a toolbar dropdown; default off) and
+**advisory** — no query gates piece manipulation. The combat/seeded-RNG methods
+(M5) are not yet added, but the interface is shaped to carry them, and the query
+signatures are the ones an agent will reuse (ADR-0008).

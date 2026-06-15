@@ -1,7 +1,8 @@
 extends Node2D
 
 ## Entry point: loads a scenario package (ADR-0004) and assembles the sandbox —
-## board, camera, pieces, measure tool, and HUD. No rules (ADR-0005, Phase 1).
+## board, camera, pieces, measure tool, advisory rules overlay, and HUD. Rules
+## are opt-in and advisory only (ADR-0005, Phase 2 / M4); default is off.
 ##
 ## Scenario selection order:
 ##   1. `--scenario=<path>` on the command line
@@ -14,6 +15,8 @@ var _board: BoardView
 var _camera: CameraController
 var _pieces: PieceLayer
 var _ruler: Ruler
+var _rules: RulesEngine
+var _overlay: RulesOverlay
 var _hud: Hud
 
 func _ready() -> void:
@@ -51,6 +54,14 @@ func _start(path: String) -> void:
 	_ruler.name = "Ruler"
 	add_child(_ruler)
 
+	# Rules are off by default; the HUD turns a ruleset on per game (ADR-0005).
+	_rules = RulesEngine.new()
+	_rules.configure(scenario, "none")
+	_overlay = RulesOverlay.new()
+	_overlay.name = "RulesOverlay"
+	_overlay.engine = _rules
+	add_child(_overlay)
+
 	_camera = CameraController.new()
 	_camera.name = "Camera"
 	add_child(_camera)
@@ -59,7 +70,7 @@ func _start(path: String) -> void:
 	_hud = Hud.new()
 	_hud.name = "Hud"
 	add_child(_hud)
-	_hud.setup(_pieces, _ruler, _camera, _board, scenario)
+	_hud.setup(_pieces, _ruler, _camera, _board, scenario, _rules, _overlay)
 
 	get_window().title = "Krieg — %s" % scenario.name()
 

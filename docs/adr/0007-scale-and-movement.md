@@ -1,7 +1,7 @@
 # ADR-0007: Game scale & movement model
 
-- **Status:** Proposed
-- **Date:** 2026-06-14
+- **Status:** Accepted
+- **Date:** 2026-06-14 (accepted 2026-06-15, Phase 2 / M4)
 - **Deciders:** project owner
 
 ## Context
@@ -66,3 +66,14 @@ enforcement (M5).
   measured-ruler heritage.
 - A future grid variant or a strict-1:8000 "purist" ruleset are both reachable
   without contradicting this ADR.
+
+## Realised by (M4, 2026-06-15)
+
+`Strategos.gd` ([`client/rules/`](../../client/rules/)) carries the movement
+model as data: a `metres/turn` table keyed by `unit_type × terrain_category`
+(0 = impassable) plus a turn length (~2 min). The engine spends a per-turn
+budget (the unit's open-ground rate) against per-metre terrain cost while
+marching outward, so roads bulge the reach and woods/villages pinch it — the
+free-movement, measured model this ADR chose, not a grid. The rates and LOS
+occluder heights are the **provisional guesses** this ADR flags for playtesting;
+tuning them is a config edit in the ruleset, not an engine change.

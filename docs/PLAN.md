@@ -4,13 +4,17 @@ A desktop **Kriegsspiel** (war game) played on real-world terrain sourced from
 OpenStreetMap, re-skinned to emulate a 19th-century battlefield. Units are
 rendered as "wooden pieces" on a map that behaves like a tabletop board.
 
-> Status: **Phases 0 and 1 implemented.** The offline map pipeline (M0 spike)
-> turns a bbox into a versioned scenario package ([`pipeline/`](../pipeline/)),
-> and the **Godot 4 game client** ([`client/`](../client/)) now loads that
-> package and runs as a tabletop sandbox (M1 board renderer + M2 pieces &
-> save/load) — no rules yet, by design. Phases 2+ remain design-only. The ADRs
-> in [`docs/adr/`](adr/) define the design; ADRs 0001, 0002, 0003, 0004, 0006
-> are now *Accepted*, the rest remain *Proposed*.
+> Status: **Phases 0, 1, and Phase 2 / M4 implemented.** The offline map
+> pipeline (M0 spike) turns a bbox into a versioned scenario package
+> ([`pipeline/`](../pipeline/)), and the **Godot 4 game client**
+> ([`client/`](../client/)) loads that package and runs as a tabletop sandbox
+> (M1 board renderer + M2 pieces & save/load). On top of that, an **opt-in
+> advisory rules engine** ([`client/rules/`](../client/rules/), M4) now suggests
+> terrain-aware movement reach and line-of-sight via a pluggable *Strategos
+> (1880)* ruleset — advisory only, nothing enforced (ADR-0005). Enforced
+> resolution (M5) and double-blind (M6) remain design-only. The ADRs in
+> [`docs/adr/`](adr/) define the design; ADRs 0001, 0002, 0003, 0004, 0005,
+> 0006, 0007 are now *Accepted*, the rest remain *Proposed*.
 
 ---
 
@@ -87,15 +91,20 @@ scenario package (the bundled `waterloo` by default) and runs the sandbox.
 - [x] Save / load a game state (piece positions; a separate file from the board).
 - [x] A measuring ruler and a movement-range overlay (purely advisory).
 
-### Phase 2 — Assisted umpire (rules, opt-in)
+### Phase 2 — Assisted umpire (rules, opt-in) — 🟡 M4 implemented
 Layer Kriegsspiel/Strategos mechanics on top as **advisory then enforced**
-tools, behind a pluggable rules interface (ADR-0005).
+tools, behind a pluggable rules interface (ADR-0005). Built in
+[`client/rules/`](../client/rules/): a renderer-free `Ruleset` interface with a
+`Strategos` (1880) implementation, fed by a `TerrainModel` (covering terrain +
+road proximity) and an `ElevationField` (contour-interpolated heightfield).
 
-- Movement rates by unit type & terrain; turn/pulse structure.
-- Line-of-sight & visibility from terrain + elevation.
-- Combat resolution tables + dice, with a logged, seeded RNG.
-- Double-blind / fog-of-war mode (two player views + umpire view), echoing the
-  original three-room setup.
+- [x] Movement rates by unit type & terrain (data table, ADR-0007), surfaced as
+  a terrain-aware **advisory reach** overlay for the selected piece.
+- [x] **Line-of-sight** from terrain + elevation (an advisory LOS probe tool).
+- [ ] Turn/pulse structure.
+- [ ] Combat resolution tables + dice, with a logged, seeded RNG. *(M5)*
+- [ ] Double-blind / fog-of-war mode (two player views + umpire view), echoing
+  the original three-room setup. *(M6)*
 
 ### Phase 3 — AI agents (research)
 Expose the game state behind a stable interface so an automated agent can act as
@@ -200,7 +209,10 @@ context rather than re-argued from scratch.
   manually.*
 - **M3 — Pipeline UX.** Choose an area by name/bbox; period filter is
   configurable (target year, road set, building density).
-- **M4 — Rules v0 (advisory).** Movement ranges & LOS overlays, no enforcement.
+- **M4 — Rules v0 (advisory).** ✅ *Done (2026-06-15).* Pluggable rules engine
+  ([`client/rules/`](../client/rules/), ADR-0005) with a *Strategos* ruleset;
+  terrain-aware movement-reach overlay and an elevation/cover line-of-sight
+  probe — both advisory, no enforcement.
 - **M5 — Rules v1 (umpire).** Combat tables, seeded dice, turn structure, log.
 - **M6 — Double-blind.** Fog of war, per-player views, umpire view.
 - **M7+ — Agents.** Stable agent interface; first scripted/AI umpire or player.

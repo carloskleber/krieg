@@ -1,23 +1,27 @@
 class_name Hud
 extends CanvasLayer
 
-## Screen-space UI: toolbar (tool/unit/side/range/file actions), a help & info
-## panel, the scale bar, a measurement readout, and source attribution. Owns no
-## game logic — it drives PieceLayer / Ruler / Camera and reads the Scenario.
+## Screen-space UI: toolbar (tool/unit/side/range/rules/file actions), a help &
+## info panel, the scale bar, a measurement/LOS readout, and source attribution.
+## Owns no game logic — it drives PieceLayer / Ruler / Camera / RulesEngine and
+## reads the Scenario.
 
-enum Tool { SELECT, PLACE, MEASURE }
+enum Tool { SELECT, PLACE, MEASURE, LOS }
 
-const HELP := "LMB place/select · drag move · RMB/MMB pan · wheel zoom\nQ/E rotate (Shift=fine) · +/- stack · F side · L label · Del remove · arrows nudge"
+const HELP := "LMB place/select · drag move · RMB/MMB pan · wheel zoom\nQ/E rotate (Shift=fine) · +/- stack · F side · L label · Del remove · arrows nudge\nMeasure / LOS: left-drag across the board"
 
 var _piece_layer: PieceLayer
 var _ruler: Ruler
 var _camera: CameraController
 var _board: BoardView
 var _scenario: Scenario
+var _rules: RulesEngine
+var _overlay: RulesOverlay
 
 var _tool := Tool.SELECT
 var _type_opt: OptionButton
 var _side_opt: OptionButton
+var _rules_opt: OptionButton
 var _info: RichTextLabel
 var _measure_label: Label
 var _scale_bar: ScaleBar
@@ -27,17 +31,21 @@ var _editing: Piece
 var _save_dialog: FileDialog
 var _load_dialog: FileDialog
 
-func setup(piece_layer: PieceLayer, ruler: Ruler, camera: CameraController, board: BoardView, scenario: Scenario) -> void:
+func setup(piece_layer: PieceLayer, ruler: Ruler, camera: CameraController, board: BoardView, scenario: Scenario, rules: RulesEngine, overlay: RulesOverlay) -> void:
 	_piece_layer = piece_layer
 	_ruler = ruler
 	_camera = camera
 	_board = board
 	_scenario = scenario
+	_rules = rules
+	_overlay = overlay
 	_build()
 	_apply_tool(Tool.SELECT)
 	_piece_layer.selection_changed.connect(_on_selection_changed)
 	_piece_layer.request_label_edit.connect(_open_label_editor)
+	_piece_layer.pieces_changed.connect(_refresh_reach)
 	_ruler.measured.connect(_on_measured)
+	_overlay.los_reported.connect(func(text): _measure_label.text = text)
 	_on_selection_changed(null)
 
 # --- UI construction --------------------------------------------------------
@@ -66,6 +74,7 @@ func _build_topbar(root: Control) -> void:
 	bar.add_child(_tool_button("Select", Tool.SELECT, group, true))
 	bar.add_child(_tool_button("Place", Tool.PLACE, group, false))
 	bar.add_child(_tool_button("Measure", Tool.MEASURE, group, false))
+	bar.add_child(_tool_button("LOS", Tool.LOS, group, false))
 	bar.add_child(VSeparator.new())
 
 	bar.add_child(_mklabel("Unit"))
@@ -90,6 +99,15 @@ func _build_topbar(root: Control) -> void:
 	range_spin.value = 0
 	range_spin.value_changed.connect(func(v): _piece_layer.set_range(v))
 	bar.add_child(range_spin)
+	bar.add_child(VSeparator.new())
+
+	# Rules are opt-in per game (ADR-0005); advisory only at M4.
+	bar.add_child(_mklabel("Rules"))
+	_rules_opt = OptionButton.new()
+	_rules_opt.add_item("None")
+	_rules_opt.add_item(Strategos.new().display_name())
+	_rules_opt.item_selected.connect(_on_rules_selected)
+	bar.add_child(_rules_opt)
 	bar.add_child(VSeparator.new())
 
 	bar.add_child(_action_button("Frame", _on_frame))
@@ -196,9 +214,11 @@ func _mklabel(text: String) -> Label:
 func _apply_tool(tool: int) -> void:
 	_tool = tool
 	_piece_layer.place_mode = tool == Tool.PLACE
-	_piece_layer.input_enabled = tool != Tool.MEASURE
+	# Piece manipulation yields to the measure tape and the LOS probe.
+	_piece_layer.input_enabled = tool == Tool.SELECT or tool == Tool.PLACE
 	_ruler.set_enabled(tool == Tool.MEASURE)
-	if tool != Tool.MEASURE:
+	_overlay.set_los_enabled(tool == Tool.LOS)
+	if tool != Tool.MEASURE and tool != Tool.LOS:
 		_measure_label.text = ""
 
 func _on_type_selected(idx: int) -> void:
@@ -207,16 +227,46 @@ func _on_type_selected(idx: int) -> void:
 func _on_side_selected(idx: int) -> void:
 	_piece_layer.place_side = UnitCatalogue.SIDE_ORDER[idx]
 
+func _on_rules_selected(idx: int) -> void:
+	_rules.configure(_scenario, RulesEngine.RULESET_IDS[idx])
+	_refresh_reach()
+	_on_selection_changed(_piece_layer.selected())
+
 func _on_selection_changed(p: Piece) -> void:
+	_refresh_reach()
 	if p == null:
-		_info.text = "[b]No piece selected[/b]\n%s" % HELP
+		_info.text = "[b]No piece selected[/b]\n%s\n%s" % [_rules_line(), HELP]
 		return
+	_overlay.set_los_unit_type(p.type_id)
 	var td: Dictionary = UnitCatalogue.type_def(p.type_id)
 	var sd: Dictionary = UnitCatalogue.side_def(p.side)
 	var m := Geo.to_metres(p.position)
 	var lbl := p.label if not p.label.is_empty() else "(unlabelled)"
-	_info.text = "[b]%s[/b] · %s · facing %d° · x%d\n%s\n@ (%.0f, %.0f) m\n%s" % [
-		td.label, sd.label, int(round(rad_to_deg(p.rotation))) % 360, p.stack_count, lbl, m.x, m.y, HELP]
+	_info.text = "[b]%s[/b] · %s · facing %d° · x%d\n%s\n@ (%.0f, %.0f) m\n%s\n%s" % [
+		td.label, sd.label, int(round(rad_to_deg(p.rotation))) % 360, p.stack_count, lbl, m.x, m.y, _rules_line(), HELP]
+
+## A one-line note on the active ruleset and what the selected piece can do this
+## turn (advisory — ADR-0005/0007).
+func _rules_line() -> String:
+	if not _rules.enabled():
+		return "[i]Rules: off (sandbox)[/i]"
+	var rs_name := _rules.ruleset.display_name()
+	var p := _piece_layer.selected()
+	if p == null:
+		return "[i]Rules: %s · select a piece for its move reach; LOS tool to check sight[/i]" % rs_name
+	var terr := _rules.terrain.movement_terrain_at(Geo.to_metres(p.position))
+	var budget := _rules.ruleset.movement_budget(p.type_id)
+	return "[i]Rules: %s · on %s · ~%.0f m/turn[/i]" % [rs_name, terr, budget]
+
+## Recompute the selected piece's advisory move reach (terrain-aware).
+func _refresh_reach() -> void:
+	if _overlay == null:
+		return
+	var p := _piece_layer.selected()
+	if p != null and _rules.enabled():
+		_overlay.show_reach(p.position, p.type_id)
+	else:
+		_overlay.clear_reach()
 
 func _on_measured(metres: float) -> void:
 	if metres <= 0.0:
